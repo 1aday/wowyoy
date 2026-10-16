@@ -1,0 +1,294 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+@source "../../../apps/**/*.{ts,tsx}";
+@source "../../../components/**/*.{ts,tsx}";
+@source "../**/*.{ts,tsx}";
+
+/*
+ * The wowyoy theme.
+ * Color means direction only: --up is green ▲, --down is red ▼. Everything else is ink.
+ */
+
+@theme inline {
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-pixel: var(--font-geist-pixel), var(--font-geist-mono), monospace;
+  --font-heading: var(--font-pixel);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Brand tokens */
+  --color-ink: var(--foreground);
+  --color-surface: var(--card);
+  --color-line: var(--border);
+  --color-brand: var(--brand);
+  --color-on-brand: var(--on-brand);
+  --color-up: var(--up);
+  --color-down: var(--down);
+  --color-up-bg: var(--up-bg);
+  --color-down-bg: var(--down-bg);
+  --color-band: var(--band);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Motion: 80 / 160 / 240 / 400ms, never longer */
+  --duration-micro: 80ms;
+  --duration-short: 160ms;
+  --duration-medium: 240ms;
+  --duration-long: 400ms;
+  --ease-enter: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-move: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+:root {
+  --radius: 0.5rem;
+
+  --background: #fafaf9;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --primary: #14532d;
+  --primary-foreground: #ffffff;
+  --secondary: #f2f2f0;
+  --secondary-foreground: #18181b;
+  --muted: #f2f2f0;
+  --muted-foreground: #63636b;
+  --accent: rgb(24 24 27 / 0.05);
+  --accent-foreground: #18181b;
+  --destructive: #dc2626;
+  --border: #e5e5e3;
+  --input: #e5e5e3;
+  --ring: #166534;
+
+  --brand: #14532d;
+  --on-brand: #ffffff;
+  --up: #166534;
+  --down: #dc2626;
+  --up-bg: #dcfce7;
+  --down-bg: #fee4e2;
+  --band: #ecece8;
+
+  /* Chart series: ink, blue, amber, grey. Green and red appear only on called-out points. */
+  --chart-1: #18181b;
+  --chart-2: #2563eb;
+  --chart-3: #d97706;
+  --chart-4: #94a3b8;
+  --chart-5: #63636b;
+
+  --sidebar: #fafaf9;
+  --sidebar-foreground: #18181b;
+  --sidebar-primary: #14532d;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgb(24 24 27 / 0.05);
+  --sidebar-accent-foreground: #18181b;
+  --sidebar-border: #e5e5e3;
+  --sidebar-ring: #166534;
+}
+
+.dark {
+  --background: #0a0a0b;
+  --foreground: #f4f4f5;
+  --card: #141416;
+  --card-foreground: #f4f4f5;
+  --popover: #141416;
+  --popover-foreground: #f4f4f5;
+  --primary: #4ade80;
+  --primary-foreground: #052e16;
+  --secondary: #1c1c1f;
+  --secondary-foreground: #f4f4f5;
+  --muted: #1c1c1f;
+  --muted-foreground: #a1a1aa;
+  --accent: rgb(244 244 245 / 0.06);
+  --accent-foreground: #f4f4f5;
+  --destructive: #f04848;
+  --border: #27272a;
+  --input: #27272a;
+  --ring: #4ade80;
+
+  --brand: #4ade80;
+  --on-brand: #052e16;
+  --up: #4ade80;
+  --down: #f04848;
+  --up-bg: #14532d80;
+  --down-bg: #7f1d1d80;
+  --band: #232327;
+
+  --chart-1: #f4f4f5;
+  --chart-2: #60a5fa;
+  --chart-3: #fbbf24;
+  --chart-4: #71717a;
+  --chart-5: #a1a1aa;
+
+  --sidebar: #0a0a0b;
+  --sidebar-foreground: #f4f4f5;
+  --sidebar-primary: #4ade80;
+  --sidebar-primary-foreground: #052e16;
+  --sidebar-accent: rgb(244 244 245 / 0.06);
+  --sidebar-accent-foreground: #f4f4f5;
+  --sidebar-border: #27272a;
+  --sidebar-ring: #4ade80;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "ss01";
+  }
+  /* Focus ring only for keyboard users: 2px up-color */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+/* Type roles. Pixel only at pixel-true sizes: 33, 46, 79, 92, 125px. */
+@utility pixel-33 {
+  font-family: var(--font-pixel);
+  font-size: 33px;
+  line-height: 1.1;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+@utility pixel-46 {
+  font-family: var(--font-pixel);
+  font-size: 46px;
+  line-height: 1.05;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+@utility pixel-79 {
+  font-family: var(--font-pixel);
+  font-size: 79px;
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+@utility pixel-92 {
+  font-family: var(--font-pixel);
+  font-size: 92px;
+  line-height: 1;
+  font-weight: 400;
+}
+@utility pixel-125 {
+  font-family: var(--font-pixel);
+  font-size: 125px;
+  line-height: 0.95;
+  font-weight: 400;
+}
+
+/* Every number: Geist Mono, tabular figures */
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Uppercase mono labels and table headers */
+@utility label-mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+/* Blinking block cursor on the Pixel grid: 1.1s, stepped */
+@keyframes wy-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+@utility cursor-block {
+  display: inline-block;
+  width: calc(12em / 26.33);
+  height: 0.734em;
+  background: var(--up);
+  margin-left: 0.12em;
+  vertical-align: baseline;
+  animation: wy-blink 1.1s steps(1) infinite;
+}
+
+/* Recharts: Mono 12px axis labels, crisp hairlines */
+.recharts-cartesian-axis-tick-value,
+.recharts-label,
+.recharts-polar-angle-axis-tick-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Category names on bar lists read as words: Geist 13px */
+text.wy-name,
+.wy-name .recharts-cartesian-axis-tick-value {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  fill: var(--foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .cursor-block {
+    animation: none;
+  }
+}
