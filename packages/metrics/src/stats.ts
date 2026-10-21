@@ -1,6 +1,6 @@
 import { mean, standardDeviation } from "simple-statistics"
 import { metricById, type MetricId } from "./catalog"
-import type { WeekRow } from "./sample"
+import type { MetricWeek } from "./series"
 
 export const comparisons = ["wow", "avg4", "avg13", "yoy"] as const
 export type Comparison = (typeof comparisons)[number]
@@ -12,12 +12,16 @@ export const comparisonLabels: Record<Comparison, { short: string; long: string;
   yoy: { short: "vs last yr", long: "vs same week last year", flag: "yoy" },
 }
 
-/** How many past weeks define "normal" for a comparison. */
+/**
+ * How many past weeks define "normal" for a comparison.
+ * The history is of the comparison's own changes (this week vs its base), not of single weeks,
+ * so the noise of both weeks being compared is already inside the spread.
+ */
 const HISTORY = 26
 /** Outside ±2σ of its own history = beyond normal noise. */
 export const Z_SIGNIFICANT = 2
 
-function baseAt(rows: WeekRow[], id: MetricId, i: number, c: Comparison): number | null {
+function baseAt(rows: readonly MetricWeek[], id: MetricId, i: number, c: Comparison): number | null {
   const v = (k: number) => rows[k]?.values[id]
   switch (c) {
     case "wow":
@@ -29,7 +33,11 @@ function baseAt(rows: WeekRow[], id: MetricId, i: number, c: Comparison): number
       const n = c === "avg4" ? 4 : 13
       if (i - n < 0) return null
       let s = 0
-      for (let k = i - n; k < i; k++) s += v(k) ?? 0
+      for (let k = i - n; k < i; k++) {
+        const x = v(k)
+        if (x == null) return null
+        s += x
+      }
       return s / n
     }
   }
@@ -48,7 +56,7 @@ export interface Delta {
   direction: "up" | "down" | "flat"
 }
 
-export function delta(rows: WeekRow[], id: MetricId, i: number, c: Comparison): Delta | null {
+export function delta(rows: readonly MetricWeek[], id: MetricId, i: number, c: Comparison): Delta | null {
   const value = rows[i]?.values[id]
   const base = baseAt(rows, id, i, c)
   if (value == null || base == null || base === 0) return null
@@ -84,10 +92,14 @@ export function delta(rows: WeekRow[], id: MetricId, i: number, c: Comparison): 
 }
 
 /** Trailing 13-week mean ±2σ for each week: the grey "normal" band on charts. */
-export function normalBand(rows: WeekRow[], id: MetricId, i: number, window = 13) {
+export function normalBand(rows: readonly MetricWeek[], id: MetricId, i: number, window = 13) {
   if (i - window < 0) return null
   const xs: number[] = []
-  for (let k = i - window; k < i; k++) xs.push(rows[k]!.values[id])
+  for (let k = i - window; k < i; k++) {
+    const x = rows[k]?.values[id]
+    if (x == null) return null
+    xs.push(x)
+  }
   const m = mean(xs)
   const sd = standardDeviation(xs)
   return { mean: m, lo: m - 2 * sd, hi: m + 2 * sd }
@@ -99,13 +111,12 @@ export interface PulseRow {
   deltas: Record<Comparison, Delta | null>
 }
 
-export function pulse(rows: WeekRow[], i: number, ids: readonly MetricId[]): PulseRow[] {
-  return ids.map((id) => ({
-    id,
-    value: rows[i]!.values[id],
-    deltas: Object.fromEntries(comparisons.map((c) => [c, delta(rows, id, i, c)])) as Record<
-      Comparison,
-      Delta | null
-    >,
-  }))
+/** One row per metric that has a value this week, in the order given (funnel order). */
+export function pulse(rows: readonly MetricWeek[], i: number, ids: readonly MetricId[]): PulseRow[] {
+  return ids.flatMap((id) => {
+    const value = rows[i]?.values[id]
+    if (value == null) return []
+    const deltas = Object.fromEntries(comparisons.map((c) => [c, delta(rows, id, i, c)])) as Record<Comparison, Delta | null>
+    return [{ id, value, deltas }]
+  })
 }
