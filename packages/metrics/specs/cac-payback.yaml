@@ -11,7 +11,7 @@ polarity: down-is-good
 
 definition:
   one_line: How many months of gross margin from the week's new customers it takes to earn back what was spent to win them.
-  formula: Acquisition spend ÷ (new MRR from first subscriptions × gross margin)
+  formula: Acquisition spend ÷ (new MRR × gross margin)
 
 events:
   - name: ad_spend
@@ -22,7 +22,7 @@ events:
         description: Amount spent that day, in the reporting currency.
   - name: subscription_started
     description: A subscription's first paid period began, after any free trial.
-    also_called: [customer.subscription.created, Subscription Started, subscription_activated]
+    also_called: [Subscription Started, subscription_activated, invoice.paid (first)]
     properties:
       - name: mrr
         description: Monthly amount of the new subscription, after discounts, before tax. Annual plans divided by twelve.
@@ -42,7 +42,7 @@ denominator:
 
 queries:
   hogql: |-
-    -- CAC payback per week, in months: acquisition spend ÷ (new MRR from first subscriptions × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- CAC payback per week, in months: acquisition spend ÷ (new MRR × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
     -- Gross margin is set to 0.80 below; replace it with your own.
     -- HogQL: paste into a PostHog SQL insight.
     SELECT
@@ -66,7 +66,7 @@ queries:
     ) AS f ON f.week = w.week
     ORDER BY week
   postgres: |-
-    -- CAC payback per week, in months: acquisition spend ÷ (new MRR from first subscriptions × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- CAC payback per week, in months: acquisition spend ÷ (new MRR × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
     -- Gross margin is set to 0.80 below; replace it with your own.
     -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
     WITH weeks AS (
@@ -97,7 +97,7 @@ queries:
     FROM totals
     ORDER BY week;
   bigquery: |-
-    -- CAC payback per week, in months: acquisition spend ÷ (new MRR from first subscriptions × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- CAC payback per week, in months: acquisition spend ÷ (new MRR × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
     -- Gross margin is set to 0.80 below; replace it with your own.
     -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
     WITH weeks AS (
@@ -124,7 +124,7 @@ queries:
     FROM totals
     ORDER BY week;
   snowflake: |-
-    -- CAC payback per week, in months: acquisition spend ÷ (new MRR from first subscriptions × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- CAC payback per week, in months: acquisition spend ÷ (new MRR × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
     -- Gross margin is set to 0.80 below; replace it with your own.
     -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
     WITH weeks AS (
@@ -226,6 +226,7 @@ prose:
     - Weekly payback swings with deal timing, because spend leads new customers by weeks or months. Plan on the trailing quarter and read the weekly number for direction only.
     - It assumes customers stay long enough to pay it back. At Copperline's logo churn of about 0.56% a week, about a quarter of a cohort has left by month 11.5; read it with net revenue retention.
     - Media spend alone gives a flattering number. Sales salaries, agency fees and tools belong in the spend for a fully loaded payback.
+    - New MRR here is every subscription whose first paid period started this week, as in the new MRR spec. If your billing sells add-ons as separate subscriptions, an existing customer's add-on counts too; filter to each customer's first subscription for a strict per-customer payback.
 
 reviewed_by: null
 reviewed_at: null

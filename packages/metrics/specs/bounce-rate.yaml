@@ -197,7 +197,7 @@ noise:
 example:
   business: store
   level: 0.38
-  volume: 520000
+  volume: 600000
   trend: -0.02
 
 drivers:
@@ -264,8 +264,8 @@ prose:
   why_it_matters: >-
     Bounce rate is the cheapest early warning a store has: it moves within hours of a broken
     page, a slow release or a campaign sending the wrong people, long before orders are counted.
-    On 520,000 sessions a week, two extra points of bounce is about 10,000 visits that never see
-    a product, which at a 2% conversion rate is about 200 orders.
+    On 600,000 sessions a week, two extra points of bounce is about 12,000 visits that never see
+    a product, which at a 2% conversion rate is about 240 orders.
   pitfalls:
     - Bounce rates from different tools don't compare. Universal Analytics counted any one-page visit, GA4 reports one minus engagement rate, and this spec follows PostHog's rule of one page, no click and under 10 seconds.
     - A bounce rate that falls to the low teens or below overnight almost always means a page view or event fires twice, not a better site. Check the tags before celebrating.

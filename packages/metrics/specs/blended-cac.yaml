@@ -24,7 +24,7 @@ events:
         description: The platform or cost line (google, linkedin, meta, sales, agency).
   - name: subscription_started
     description: A subscription's first paid period began, after any free trial.
-    also_called: [customer.subscription.created, Subscription Started, subscription_activated]
+    also_called: [Subscription Started, subscription_activated, invoice.paid (first)]
     properties:
       - name: subscription_id
         description: The billing system's subscription id.

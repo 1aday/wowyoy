@@ -240,7 +240,7 @@ noise:
   type: process
   min_denominator: 50
   volume_unit: orders from paid sessions a week
-  typical: 2
+  typical: 1.2
 
 example:
   business: store
