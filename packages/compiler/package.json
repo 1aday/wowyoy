@@ -8,6 +8,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@workspace/feeds": "workspace:*",
     "@workspace/metrics": "workspace:*"
   },
   "devDependencies": {

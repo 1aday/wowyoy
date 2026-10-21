@@ -102,12 +102,15 @@ importers:
 
   packages/compiler:
     dependencies:
+      '@workspace/feeds':
+        specifier: workspace:*
+        version: link:../feeds
       '@workspace/metrics':
         specifier: workspace:*
         version: link:../metrics
     devDependencies:
       '@electric-sql/pglite':
-        specifier: 0.5.10
+        specifier: ^0.5.10
         version: 0.5.10
       '@types/node':
         specifier: ^20
@@ -116,7 +119,7 @@ importers:
         specifier: workspace:*
         version: link:../typescript-config
       node-sql-parser:
-        specifier: 5.4.0
+        specifier: ^5.4.0
         version: 5.4.0
       typescript:
         specifier: ^5
