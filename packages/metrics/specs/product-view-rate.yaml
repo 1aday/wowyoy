@@ -1,0 +1,117 @@
+id: product-view-rate
+name: Product view rate
+aliases:
+  - Product page view rate
+  - PDP view rate
+  - Product detail view rate
+family: conversion
+catalog_id: product_view_rate
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of sessions that viewed at least one product page, the first step of the store funnel.
+  formula: Sessions with a product view ÷ sessions
+
+events:
+  - name: $pageview
+    description: A page loaded in the browser. Sessions are the distinct session ids across page views.
+    also_called: [page_view, Page Viewed, page_viewed]
+    properties:
+      - name: $session_id
+        description: The browser session; a new one starts after 30 minutes without activity.
+  - name: product_viewed
+    description: A product detail page rendered with its product, once per view.
+    also_called: [view_item, Product Viewed, product_viewed]
+    properties:
+      - name: product_id
+        description: The product shown.
+      - name: price
+        description: The price shown, before discounts.
+
+numerator:
+  label: Sessions that viewed a product
+  aggregate: unique_sessions
+  event: product_viewed
+denominator:
+  label: Sessions
+  aggregate: unique_sessions
+  event: $pageview
+
+noise:
+  type: binomial
+  min_denominator: 500
+  volume_unit: sessions a week
+  typical: 0.55
+  reference_volumes: [2000, 10000, 50000, 250000]
+
+example:
+  business: store
+  level: 0.62
+  volume: 600000
+  trend: 0
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Did a theme, app or tag change stop product_viewed firing on some product templates?
+      yes: Page views on product URLs hold while product_viewed events fall, often on one template or device.
+    spiked:
+      check: Is product_viewed now firing on quick views, collection grids or twice per page?
+      yes: Product views per session jump, or the event appears on paths that are not product pages.
+  - id: bot-traffic
+    label: Bots and junk sessions
+    breakdown: $browser
+    dropped:
+      check: Did a wave of bot or junk sessions add visits that never reach a product?
+      yes: Sessions jump from one browser, country or referrer with one page per session and almost no product views.
+    spiked:
+      check: Did a bot source stop, shrinking the denominator rather than lifting real browsing?
+      yes: Sessions fall from one browser or country while sessions that viewed a product hold.
+  - id: traffic-mix
+    label: Landing channel
+    breakdown: utm_source
+    dropped:
+      check: Did a channel that rarely browses grow, such as a viral blog post, a giveaway or broad paid social?
+      yes: One source gains share of sessions and its product view rate sits far below the rest.
+    spiked:
+      check: Did campaigns start sending people straight to product pages, or did a low-intent source shrink?
+      yes: One source's share or view rate moves from the day a campaign or link changed.
+  - id: device-split
+    label: Mobile vs desktop
+    breakdown: $device_type
+    dropped:
+      check: Is the drop on one device type only, for example after a mobile menu or search change?
+      yes: Mobile falls several points while desktop is flat, starting on a release day.
+    spiked:
+      check: Is the rise on one device type only?
+      yes: One device jumps after a release; confirm product_viewed didn't start firing twice there first.
+  - id: navigation
+    label: Homepage and navigation
+    dropped:
+      check: Did a homepage, menu, search or collection change make products harder to reach?
+      yes: Sessions that land on the changed page view fewer products from the day it shipped, on every channel.
+    spiked:
+      check: Did a homepage, menu or collection change put products one click closer?
+      yes: Sessions that land on the changed page view more products from the day it shipped, on every channel.
+
+diagnose_order: [tracking, bot-traffic, traffic-mix, device-split, navigation]
+
+related: [sessions, bounce-rate, add-to-cart-rate, conversion-rate, pages-per-session]
+
+prose:
+  why_it_matters: >-
+    Product view rate says whether visitors find something worth a closer look, before price,
+    stock or checkout can matter. On a store with 600,000 sessions a week, one point is 6,000
+    sessions that never see a product; at the 3.6% of product viewers who go on to order, that
+    is about 200 orders a week.
+  pitfalls:
+    - Counting product views instead of sessions with a product view lets a few heavy browsers lift the rate. This spec counts each session once.
+    - Decide whether quick-view pop-ups count as product views and keep that choice; switching it moves the rate several points with no change in shoppers.
+    - Bot and crawler sessions land in the denominator only, so a bot wave reads as a fall in browsing. Split sessions by browser and country before acting.
+    - Landing pages with their own buy button skip the product page, so the rate falls while sales hold. Fire product_viewed on those pages or read add-to-cart over all sessions instead.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

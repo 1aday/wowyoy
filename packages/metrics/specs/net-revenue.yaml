@@ -51,6 +51,7 @@ example:
   level: 1300000
   volume: 13000
   trend: 0.2
+  season: 1
 
 drivers:
   - id: orders

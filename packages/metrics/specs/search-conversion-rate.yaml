@@ -1,0 +1,219 @@
+id: search-conversion-rate
+name: Search conversion rate
+aliases:
+  - Site search conversion rate
+  - Search to purchase rate
+  - Search conversion
+family: conversion
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of sessions that used site search and then placed a paid order in the same session.
+  formula: Sessions that searched, then ordered ÷ sessions that searched
+
+events:
+  - name: product_searched
+    description: A search submitted in the store's search box, or its results page shown, once per search.
+    also_called: [search, view_search_results, Products Searched, search_submitted]
+    properties:
+      - name: query
+        description: What the shopper typed, as submitted.
+      - name: results_count
+        description: How many products the search returned; 0 is a dead end.
+  - name: order_completed
+    description: A paid order confirmed by the server, carrying the browser's session id.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+
+numerator:
+  label: Sessions that searched, then ordered
+  aggregate: unique_sessions
+  event: order_completed
+denominator:
+  label: Sessions that searched
+  aggregate: unique_sessions
+  event: product_searched
+
+queries:
+  hogql: |-
+    -- Search conversion rate: sessions that searched, then placed a paid order ÷ sessions that searched. One row per complete week, last 26 weeks.
+    SELECT
+      toMonday(searched_at) AS week,
+      countIf(ordered_at >= searched_at) AS numerator,
+      count() AS denominator,
+      if(denominator > 0, numerator / denominator, NULL) AS value
+    FROM (
+      SELECT
+        $session_id AS session_id,
+        minIf(timestamp, event = 'product_searched') AS searched_at,
+        maxIf(timestamp, event = 'order_completed') AS ordered_at
+      FROM events
+      WHERE event IN ('product_searched', 'order_completed')
+        AND $session_id != ''
+        AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
+        AND timestamp < toStartOfWeek(now(), 1)
+      GROUP BY session_id
+      HAVING countIf(event = 'product_searched') > 0
+    )
+    GROUP BY week
+    ORDER BY week
+  postgres: |-
+    -- Search conversion rate: sessions that searched, then placed a paid order ÷ sessions that searched. One row per complete week, last 26 weeks.
+    -- Postgres. Assumes events(event_name, occurred_at, user_id, session_id, properties): one row per event, occurred_at in UTC, properties as JSON.
+    WITH searches AS (
+      SELECT
+        session_id,
+        min(occurred_at) FILTER (WHERE event_name = 'product_searched') AS searched_at,
+        max(occurred_at) FILTER (WHERE event_name = 'order_completed') AS ordered_at
+      FROM events
+      WHERE event_name IN ('product_searched', 'order_completed')
+        AND session_id IS NOT NULL
+        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
+        AND occurred_at < date_trunc('week', now())
+      GROUP BY session_id
+    )
+    SELECT
+      date_trunc('week', searched_at)::date AS week,
+      count(*) FILTER (WHERE ordered_at >= searched_at) AS numerator,
+      count(*) AS denominator,
+      (count(*) FILTER (WHERE ordered_at >= searched_at))::numeric / nullif(count(*), 0) AS value
+    FROM searches
+    WHERE searched_at IS NOT NULL
+    GROUP BY 1
+    ORDER BY 1;
+  bigquery: |-
+    -- Search conversion rate: sessions that searched, then placed a paid order ÷ sessions that searched. One row per complete week, last 26 weeks.
+    -- BigQuery. Assumes events(event_name, occurred_at, user_id, session_id, properties): one row per event, occurred_at in UTC, properties as JSON.
+    WITH searches AS (
+      SELECT
+        session_id,
+        MIN(IF(event_name = 'product_searched', occurred_at, NULL)) AS searched_at,
+        MAX(IF(event_name = 'order_completed', occurred_at, NULL)) AS ordered_at
+      FROM events
+      WHERE event_name IN ('product_searched', 'order_completed')
+        AND session_id IS NOT NULL
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      GROUP BY session_id
+    )
+    SELECT
+      DATE_TRUNC(DATE(searched_at), ISOWEEK) AS week,
+      COUNTIF(ordered_at >= searched_at) AS numerator,
+      COUNT(*) AS denominator,
+      SAFE_DIVIDE(COUNTIF(ordered_at >= searched_at), COUNT(*)) AS value
+    FROM searches
+    WHERE searched_at IS NOT NULL
+    GROUP BY week
+    ORDER BY week;
+  snowflake: |-
+    -- Search conversion rate: sessions that searched, then placed a paid order ÷ sessions that searched. One row per complete week, last 26 weeks.
+    -- Snowflake. Assumes WEEK_START = 1 (Monday) and events(event_name, occurred_at, user_id, session_id, properties), occurred_at in UTC.
+    WITH searches AS (
+      SELECT
+        session_id,
+        MIN(IFF(event_name = 'product_searched', occurred_at, NULL)) AS searched_at,
+        MAX(IFF(event_name = 'order_completed', occurred_at, NULL)) AS ordered_at
+      FROM events
+      WHERE event_name IN ('product_searched', 'order_completed')
+        AND session_id IS NOT NULL
+        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+      GROUP BY session_id
+    )
+    SELECT
+      DATE_TRUNC('week', searched_at)::date AS week,
+      COUNT_IF(ordered_at >= searched_at) AS numerator,
+      COUNT(*) AS denominator,
+      DIV0NULL(COUNT_IF(ordered_at >= searched_at), COUNT(*)) AS value
+    FROM searches
+    WHERE searched_at IS NOT NULL
+    GROUP BY 1
+    ORDER BY 1;
+
+noise:
+  type: binomial
+  min_denominator: 500
+  volume_unit: sessions with a search a week
+  typical: 0.05
+  reference_volumes: [500, 2000, 10000, 50000]
+
+example:
+  business: store
+  level: 0.052
+  volume: 66000
+  trend: 0.03
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Did a search app or theme change start firing product_searched on autocomplete keystrokes?
+      yes: Sessions with a search jump on the release day, many with a one- or two-letter query and nothing after it.
+    spiked:
+      check: Did product_searched stop firing on some pages or devices, leaving only the most determined searchers?
+      yes: Sessions with a search fall on one device or template while search orders hold.
+  - id: store-wide
+    label: The whole store
+    metric: conversion-rate
+    dropped:
+      check: Did conversion fall for everyone, not only for searchers?
+      yes: Search conversion and store conversion fall together, so the cause is checkout, price or the calendar, not search.
+    spiked:
+      check: Did conversion rise for everyone, from a sale or a fix elsewhere?
+      yes: Search conversion and store conversion rise together, so search itself didn't change.
+  - id: zero-results
+    label: Searches with no results
+    dropped:
+      check: Did more searches return nothing, from a catalogue change, lost synonyms or a trending term you don't stock?
+      yes: The share of searches with results_count of 0 rises, concentrated in a few queries.
+    spiked:
+      check: Did a synonym, spelling or catalogue fix cut dead-end searches?
+      yes: Zero-result searches fall from the day of the fix, on the queries it covered.
+  - id: stock
+    label: Stock of searched products
+    dropped:
+      check: Are the products people search for most out of stock or missing common sizes?
+      yes: Top queries still return results, but their first results are sold out.
+    spiked:
+      check: Did a much-searched product come back in stock or launch?
+      yes: Orders after searching for that product's name jump from the restock or launch day.
+  - id: relevance
+    label: Ranking and relevance
+    dropped:
+      check: Did a search app update, re-index or merchandising rule push irrelevant or sold-out products to the top?
+      yes: Clicks on the first results fall for the top queries from the day of the change.
+    spiked:
+      check: Did a relevance change or test ship, and is it on for everyone?
+      yes: The rise starts on the release day across devices and queries.
+  - id: who-searches
+    label: Who searches
+    breakdown: $device_type
+    dropped:
+      check: Did the search box become more prominent, so more casual browsers search?
+      yes: Sessions with a search grow faster than orders after searching; search-driven orders still rise.
+    spiked:
+      check: Did the search box move or shrink, leaving fewer but more committed searchers?
+      yes: Sessions with a search fall while orders after searching hold.
+
+diagnose_order: [tracking, store-wide, zero-results, stock, relevance, who-searches]
+
+related: [conversion-rate, product-view-rate, add-to-cart-rate, revenue-per-session]
+
+prose:
+  why_it_matters: >-
+    Shoppers who search say what they want in their own words, and they convert at roughly
+    twice the store average; at Northwind, 5.2% against 2.2%. A fall here is usually something
+    the team controls, such as a search app update, lost synonyms or empty results for the
+    words people actually type.
+  pitfalls:
+    - Searchers are more committed than average, so a high search conversion doesn't prove search works. Compare search conversion with itself over time, not with the store rate.
+    - Predictive search that fires the event on each keystroke counts sessions that never submitted a search. Fire product_searched on submit or on the results view.
+    - This spec credits search only when the order follows in the same session. A shopper who searches today and buys tomorrow counts as a search that didn't convert.
+    - Zero-result searches are the fastest thing to check. A rise in dead-end searches nearly always comes before a fall in search conversion.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

@@ -1,0 +1,194 @@
+id: email-click-rate
+name: Email click rate
+aliases:
+  - Email CTR
+  - Email click-through rate
+  - Email unique click rate
+  - Newsletter click rate
+family: traffic
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of emails delivered in the week whose recipient clicked at least one link in them.
+  formula: Distinct recipient and campaign pairs with a click ÷ distinct recipient and campaign pairs delivered
+
+events:
+  - name: email_delivered
+    description: The receiving server accepted the email. Bounced and suppressed sends are not deliveries.
+    also_called: [Email Delivered, Received Email, delivered]
+    properties:
+      - name: campaign_id
+        description: The campaign or automated flow message the email belongs to.
+  - name: email_clicked
+    description: A tracked link in the email was opened. One recipient can click many times.
+    also_called: [Email Link Clicked, Clicked Email, click]
+    properties:
+      - name: campaign_id
+        description: The campaign or automated flow message the click belongs to.
+
+numerator:
+  label: Recipients who clicked
+  aggregate: unique_users
+  event: email_clicked
+denominator:
+  label: Emails delivered
+  aggregate: count
+  event: email_delivered
+
+queries:
+  hogql: |-
+    -- Email click rate per week: distinct recipient and campaign pairs that clicked ÷ pairs delivered, each by the week it happened.
+    SELECT week, numerator, denominator, if(denominator > 0, numerator / denominator, NULL) AS value
+    FROM (
+      SELECT
+        toMonday(timestamp) AS week,
+        uniqIf(concat(toString(person_id), ':', toString(properties.campaign_id)), event = 'email_clicked') AS numerator,
+        uniqIf(concat(toString(person_id), ':', toString(properties.campaign_id)), event = 'email_delivered') AS denominator
+      FROM events
+      WHERE event IN ('email_delivered', 'email_clicked')
+        AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
+        AND timestamp < toStartOfWeek(now(), 1)
+      GROUP BY week
+    )
+    ORDER BY week
+  postgres: |-
+    -- Email click rate per week: distinct recipient and campaign pairs that clicked ÷ pairs delivered, each by the week it happened.
+    SELECT
+      date_trunc('week', occurred_at)::date AS week,
+      count(DISTINCT user_id || ':' || (properties->>'campaign_id')) FILTER (WHERE event_name = 'email_clicked') AS numerator,
+      count(DISTINCT user_id || ':' || (properties->>'campaign_id')) FILTER (WHERE event_name = 'email_delivered') AS denominator,
+      (count(DISTINCT user_id || ':' || (properties->>'campaign_id')) FILTER (WHERE event_name = 'email_clicked'))::numeric
+        / nullif(count(DISTINCT user_id || ':' || (properties->>'campaign_id')) FILTER (WHERE event_name = 'email_delivered'), 0) AS value
+    FROM events
+    WHERE event_name IN ('email_delivered', 'email_clicked')
+      AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
+      AND occurred_at < date_trunc('week', now())
+    GROUP BY 1
+    ORDER BY 1;
+  bigquery: |-
+    -- Email click rate per week: distinct recipient and campaign pairs that clicked ÷ pairs delivered, each by the week it happened.
+    SELECT
+      week,
+      clicked AS numerator,
+      delivered AS denominator,
+      SAFE_DIVIDE(clicked, delivered) AS value
+    FROM (
+      SELECT
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
+        COUNT(DISTINCT IF(event_name = 'email_clicked', CONCAT(user_id, ':', JSON_VALUE(properties, '$.campaign_id')), NULL)) AS clicked,
+        COUNT(DISTINCT IF(event_name = 'email_delivered', CONCAT(user_id, ':', JSON_VALUE(properties, '$.campaign_id')), NULL)) AS delivered
+      FROM events
+      WHERE event_name IN ('email_delivered', 'email_clicked')
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      GROUP BY week
+    )
+    ORDER BY week;
+  snowflake: |-
+    -- Email click rate per week: distinct recipient and campaign pairs that clicked ÷ pairs delivered, each by the week it happened.
+    -- Assumes WEEK_START = 1 (Monday).
+    SELECT
+      week,
+      clicked AS numerator,
+      delivered AS denominator,
+      DIV0NULL(clicked, delivered) AS value
+    FROM (
+      SELECT
+        DATE_TRUNC('week', occurred_at)::date AS week,
+        COUNT(DISTINCT IFF(event_name = 'email_clicked', user_id || ':' || properties:"campaign_id"::string, NULL)) AS clicked,
+        COUNT(DISTINCT IFF(event_name = 'email_delivered', user_id || ':' || properties:"campaign_id"::string, NULL)) AS delivered
+      FROM events
+      WHERE event_name IN ('email_delivered', 'email_clicked')
+        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+      GROUP BY 1
+    )
+    ORDER BY week;
+
+noise:
+  type: binomial
+  min_denominator: 2000
+  volume_unit: emails delivered a week
+  typical: 0.02
+  reference_volumes: [5000, 20000, 100000, 500000]
+
+example:
+  business: store
+  level: 0.019
+  volume: 240000
+  trend: -0.05
+  season: -0.5
+
+drivers:
+  - id: tracking
+    label: Link tracking and sync
+    dropped:
+      check: Did the email platform's sync, the click-tracking domain or its certificate break?
+      yes: Clicks fall to near zero for some campaigns while email-driven sessions in analytics hold.
+    spiked:
+      check: Is a sync sending click events twice, or counting each click as a new recipient?
+      yes: Clicks per clicker jump and the rise is identical across every campaign.
+  - id: bot-clicks
+    label: Security scanners
+    dropped:
+      check: Did your email platform start filtering bot clicks?
+      yes: The fall starts on the day of a platform release, mostly on business email domains.
+    spiked:
+      check: Are corporate security scanners clicking every link seconds after delivery?
+      yes: Clicks land within a minute of delivery, hit every link in the email, and produce no sessions.
+  - id: calendar
+    label: Calendar and inbox competition
+    feed: shopping
+    dropped:
+      check: Is this a week when every brand is emailing, such as Black Friday or the week before Christmas?
+      yes: The same week last year shows the same dip in click rate even as revenue from email rises.
+    spiked:
+      check: Was last week a crowded inbox week that this week isn't?
+      yes: The same pair of weeks last year shows the same recovery.
+  - id: audience
+    label: Who was sent to
+    breakdown: campaign_id
+    dropped:
+      check: Did a send go to a larger, less engaged audience, such as the whole list or an old segment?
+      yes: Deliveries jump for one campaign whose click rate is far below the usual ones.
+    spiked:
+      check: Did the week's sends go only to engaged segments, or did a big unengaged send drop out?
+      yes: Deliveries fall while clicks hold, so the rate rises with no change in content.
+  - id: deliverability
+    label: Inbox placement
+    dropped:
+      check: Did emails start landing in spam or the Promotions tab, after a sending change or a spam complaint spike?
+      yes: Deliveries hold but clicks fall on Gmail or Outlook addresses only.
+    spiked:
+      check: Did a sending-domain or authentication fix move emails back to the inbox?
+      yes: Clicks recover on one mailbox provider from the day of the fix.
+  - id: offer
+    label: Offer and content
+    metric: promo-code-usage-rate
+    dropped:
+      check: Did this week's emails carry a weaker offer, no product news or fewer links?
+      yes: Click rate falls on campaigns while automated flows hold.
+    spiked:
+      check: Did a sale, a launch or a restock email go out?
+      yes: One campaign's click rate is several times the usual and accounts for the rise.
+
+diagnose_order: [tracking, bot-clicks, calendar, audience, deliverability, offer]
+
+related: [sessions, new-visitor-share, repeat-purchase-rate, returning-customers, promo-code-usage-rate]
+
+prose:
+  why_it_matters: >-
+    Email is the cheapest repeat traffic a store has, and click rate is the first sign that a
+    list is tiring or a send is landing in spam. Opens stopped meaning much when Apple Mail
+    began pre-loading every email in 2021; clicks still need a person. On 240,000 deliveries a
+    week, half a point is 1,200 fewer people on the site from email.
+  pitfalls:
+    - Use unique clicks over delivered emails. Total clicks over sends counts one keen reader five times and counts bounced addresses as failures.
+    - Corporate security scanners click every link in an email within seconds of delivery. Without bot filtering, business-heavy lists show click rates two or three times the real one.
+    - Clicks are counted in the week they happen, so a Sunday send's clicks fall partly into the next week. Compare weeks with similar send schedules.
+    - Click-to-open rate is a different number. Apple Mail Privacy Protection inflates opens, so it falls for reasons that have nothing to do with the email.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

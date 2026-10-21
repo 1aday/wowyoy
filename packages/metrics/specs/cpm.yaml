@@ -1,0 +1,170 @@
+id: cpm
+name: Cost per thousand impressions
+aliases:
+  - Cost per mille
+  - Cost per thousand
+  - Cost per 1000 impressions
+family: acquisition
+kind: currency
+polarity: down-is-good
+
+definition:
+  one_line: What the ad platforms charged, on average, to show the ads a thousand times in the week.
+  formula: Ad spend ÷ impressions × 1,000
+
+events:
+  - name: ad_spend
+    description: One row per channel per day, synced from each ad platform's reporting API.
+    also_called: [Ad Spend, ad_performance, campaign_daily_stats]
+    properties:
+      - name: spend
+        description: Amount spent that day, in the store's reporting currency.
+      - name: impressions
+        description: Ads shown that day, as the platform counts them.
+      - name: channel
+        description: The platform (google, meta, tiktok, microsoft, pinterest).
+
+numerator:
+  label: Ad spend
+  aggregate: sum
+  event: ad_spend
+  property: spend
+denominator:
+  label: Impressions
+  aggregate: sum
+  event: ad_spend
+  property: impressions
+
+queries:
+  hogql: |-
+    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel.
+    SELECT week, numerator, denominator, if(denominator > 0, numerator / denominator * 1000, NULL) AS value
+    FROM (
+      SELECT
+        toMonday(timestamp) AS week,
+        sum(toFloat(properties.spend)) AS numerator,
+        sum(toFloat(properties.impressions)) AS denominator
+      FROM events
+      WHERE event = 'ad_spend'
+        AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
+        AND timestamp < toStartOfWeek(now(), 1)
+      GROUP BY week
+    )
+    ORDER BY week
+  postgres: |-
+    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel.
+    SELECT
+      date_trunc('week', occurred_at)::date AS week,
+      sum((properties->>'spend')::numeric) AS numerator,
+      sum((properties->>'impressions')::numeric) AS denominator,
+      sum((properties->>'spend')::numeric) / nullif(sum((properties->>'impressions')::numeric), 0) * 1000 AS value
+    FROM events
+    WHERE event_name = 'ad_spend'
+      AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
+      AND occurred_at < date_trunc('week', now())
+    GROUP BY 1
+    ORDER BY 1;
+  bigquery: |-
+    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel.
+    SELECT
+      DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
+      SUM(CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64)) AS numerator,
+      SUM(CAST(JSON_VALUE(properties, '$.impressions') AS FLOAT64)) AS denominator,
+      SAFE_DIVIDE(SUM(CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64)), SUM(CAST(JSON_VALUE(properties, '$.impressions') AS FLOAT64))) * 1000 AS value
+    FROM events
+    WHERE event_name = 'ad_spend'
+      AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+      AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+    GROUP BY week
+    ORDER BY week;
+  snowflake: |-
+    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel.
+    -- Assumes WEEK_START = 1 (Monday).
+    SELECT
+      DATE_TRUNC('week', occurred_at)::date AS week,
+      SUM(properties:"spend"::float) AS numerator,
+      SUM(properties:"impressions"::float) AS denominator,
+      DIV0NULL(SUM(properties:"spend"::float), SUM(properties:"impressions"::float)) * 1000 AS value
+    FROM events
+    WHERE event_name = 'ad_spend'
+      AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
+      AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+    GROUP BY 1
+    ORDER BY 1;
+
+noise:
+  type: process
+  min_denominator: 10000
+  volume_unit: impressions a week
+  typical: 12
+
+example:
+  business: store
+  level: 14.5
+  volume: 21000000
+  trend: 0.08
+
+drivers:
+  - id: sync
+    label: Impression and spend sync
+    dropped:
+      check: Is a channel syncing impressions without its spend, or spend that was missing last week?
+      yes: One channel's impressions and spend no longer move together for some days.
+    spiked:
+      check: Is a channel syncing spend without its impressions, or did a platform change how it counts an impression?
+      yes: One channel's impressions fall to near zero or change definition while its spend holds.
+  - id: auction-season
+    label: Auction season
+    feed: shopping
+    dropped:
+      check: Did a high-demand period end, such as the last weeks of Q4?
+      yes: CPMs fall across every platform in the first weeks of January or after a peak.
+    spiked:
+      check: Is this a week when every advertiser bids up, such as Black Friday, Cyber Monday or the run-up to Christmas?
+      yes: CPMs rise across every platform at once; the same weeks last year show the same rise.
+  - id: platform-changes
+    label: Platform changes
+    feed: ad-platforms
+    dropped:
+      check: Did a platform release new inventory or change its auction?
+      yes: CPM falls on one platform only, from a dated change.
+    spiked:
+      check: Did a platform outage, policy change or measurement change limit cheap inventory?
+      yes: CPM rises on one platform only, from a dated change.
+  - id: channel-mix
+    label: Channel and placement mix
+    metric: ad-spend
+    dropped:
+      check: Did budget shift toward cheap inventory such as display, Audience Network or broad video?
+      yes: Each channel's CPM holds but the share of spend on the cheapest placements grew.
+    spiked:
+      check: Did budget shift toward expensive inventory such as search, LinkedIn or retargeting?
+      yes: Each channel's CPM holds but the share of spend on the most expensive placements grew.
+  - id: targeting-and-creative
+    label: Audience and creative
+    dropped:
+      check: Did a broader audience or a fresh creative with strong engagement lower the price per impression?
+      yes: CPM falls on the campaigns that changed, often with higher click-through.
+    spiked:
+      check: Did audiences narrow, frequency climb, or a tired creative lose its quality ranking?
+      yes: CPM rises on campaigns whose frequency is above 3 or whose ads ran unchanged for weeks.
+
+diagnose_order: [sync, auction-season, platform-changes, channel-mix, targeting-and-creative]
+
+related: [ad-spend, ctr, cpc, ncac, paid-sessions]
+
+prose:
+  why_it_matters: >-
+    CPM is the price of attention, set by an auction the store doesn't control. It explains
+    most of the week-to-week swing in acquisition cost: a store paying $14.50 per thousand
+    impressions in October can pay $25 or more in Black Friday week for the same audience, and
+    every metric downstream gets more expensive with it.
+  pitfalls:
+    - A blended CPM across platforms moves with the budget mix. Search, LinkedIn and retargeting cost several times what broad social and display do; split by channel before reading a change.
+    - Platforms count impressions differently. Meta counts an ad that enters the screen and Google counts a served ad, so CPMs across platforms don't compare directly.
+    - A falling CPM is not always good news. Cheap placements such as in-app display and Audience Network buy impressions few people notice; read CPM with click-through rate.
+    - Ad-platform days follow the ad account's time zone. Summed into UTC weeks, a little spend and a few impressions land in the neighbouring week.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

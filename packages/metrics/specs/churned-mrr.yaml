@@ -1,0 +1,123 @@
+id: churned-mrr
+name: Churned MRR
+aliases:
+  - Churned revenue
+  - Lost MRR
+  - Cancelled MRR
+  - Churn MRR
+family: subscription
+kind: currency
+polarity: down-is-good
+
+definition:
+  one_line: The monthly recurring revenue lost this week from subscriptions that stopped being billed, at the amount they were paying before they ended.
+  formula: Sum of the last monthly amounts of subscriptions that ended this week, voluntary or for failed payment; downgrades are contraction and count separately
+
+events:
+  - name: subscription_canceled
+    description: A subscription stopped being billed, at the end of its paid period or after dunning gave up; not the moment someone clicks cancel.
+    also_called: [customer.subscription.deleted, Subscription Cancelled, subscription_ended]
+    properties:
+      - name: subscription_id
+        description: The billing system's subscription id.
+      - name: mrr
+        description: The monthly amount the subscription was paying before it ended, after discounts, before tax.
+      - name: plan
+        description: The plan it was on when it ended.
+      - name: reason
+        description: voluntary or payment_failed, when the billing system records why it ended.
+
+numerator:
+  label: Churned MRR
+  aggregate: sum
+  event: subscription_canceled
+  property: mrr
+
+noise:
+  type: compound
+  cv: 0.9
+  min_denominator: 8
+  volume_unit: cancellations a week
+  typical: 1100
+  reference_volumes: [10, 40, 150, 600]
+
+example:
+  business: saas
+  level: 1115
+  volume: 11
+  trend: 0.25
+
+drivers:
+  - id: billing-sync
+    label: Billing sync
+    dropped:
+      check: Did cancellations stop reaching the event stream, for example from a broken webhook?
+      yes: The billing system shows more ended subscriptions this week than there are subscription_canceled events.
+    spiked:
+      check: Did a cleanup cancel many old unpaid subscriptions at once?
+      yes: A batch of cancellations lands on one day, mostly subscriptions that had been past due for weeks.
+  - id: failed-payments
+    label: Failed payments
+    feed: stripe
+    breakdown: reason
+    dropped:
+      check: Did a dunning change, retry schedule or card updater recover payments that used to fail?
+      yes: Payment-failed cancellations fall and recovered invoices rise, while voluntary cancellations hold.
+    spiked:
+      check: Did more subscriptions end for failed payments, from expiring cards, a dunning change or a processor incident?
+      yes: Payment-failed cancellations rise while voluntary ones hold; Stripe shows an incident or a rise in declines.
+  - id: renewal-cohort
+    label: Renewals due
+    dropped:
+      check: Did fewer annual or quarterly plans come up for renewal this week?
+      yes: Renewals due this week are below usual; churn returns to normal when they are.
+    spiked:
+      check: Did a large group of annual plans reach their renewal date?
+      yes: Cancellations cluster on subscriptions that started one year ago, often from a launch month.
+  - id: plan-split
+    label: Plan and account size
+    breakdown: plan
+    dropped:
+      check: Is the fall concentrated in one plan, or is the week simply missing one large loss?
+      yes: One plan's cancellations fall to near zero; check whether a change there, such as new onboarding, explains it.
+    spiked:
+      check: Is one plan, or one large account, behind most of the loss?
+      yes: One plan or a single customer is most of the week's churned MRR.
+  - id: price-and-offers
+    label: Price changes and retention offers
+    dropped:
+      check: Did a retention offer, pause option or discount in the cancel flow go live?
+      yes: Customers who reach the cancel flow accept the offer instead; watch whether they leave when it ends.
+    spiked:
+      check: Did a price increase, or a competitor's launch or discount, reach your customers?
+      yes: Cancellations rise among customers on the changed plans, starting the week the notices went out.
+  - id: product-quality
+    label: Product problems
+    metric: error-rate
+    dropped:
+      check: Did a reliability fix or a long-requested feature ship a month or two ago?
+      yes: Cancellation reasons that cited the fixed problem fall away.
+    spiked:
+      check: Did an outage, a bug or a removed feature give customers a reason to leave?
+      yes: Cancellation reasons cite one problem, starting the week after it.
+
+diagnose_order: [billing-sync, failed-payments, renewal-cohort, plan-split, price-and-offers, product-quality]
+
+related: [mrr, logo-churn-rate, gross-revenue-retention, net-new-mrr, quick-ratio]
+
+prose:
+  why_it_matters: >-
+    Churned MRR is the outflow that decides how hard everything else has to work: a SaaS losing
+    2% of MRR a month must replace about a fifth of its revenue every year before it grows at all.
+    Week to week it is lumpy, driven by renewal dates, expiring cards and a few large accounts,
+    so read which subscriptions ended before reading how much they paid.
+  pitfalls:
+    - Booking churn when the customer clicks cancel, rather than when the paid period ends, moves it weeks ahead of the revenue actually stopping. This spec counts the week billing stops.
+    - Failed-payment churn is a billing problem, not a product verdict. Report it apart from voluntary churn, because dunning and card updaters can recover much of it.
+    - Downgrades are contraction, not churn. Folding them in hides whether customers are leaving or paying less.
+    - A customer who leaves and comes back within the month nets to zero in monthly reports but shows as churn, then new business, in weekly ones.
+    - In B2B, a few accounts can be most of a week's churned MRR. Read the list before the total.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

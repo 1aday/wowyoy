@@ -1,0 +1,128 @@
+id: mobile-conversion-rate
+name: Mobile conversion rate
+aliases:
+  - Mobile ecommerce conversion rate
+  - Mobile store conversion rate
+  - Mobile CVR
+family: conversion
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of sessions on phones that end in a paid order. Tablets are left out, as GA4 reports them separately.
+  formula: Mobile sessions with a paid order ÷ mobile sessions
+
+events:
+  - name: $pageview
+    description: A page loaded in the browser. Sessions are the distinct session ids across page views.
+    also_called: [page_view, Page Viewed, page_viewed]
+    properties:
+      - name: $session_id
+        description: The browser session; a new one starts after 30 minutes without activity.
+      - name: $device_type
+        description: Mobile, Desktop or Tablet, from the browser's user agent.
+  - name: order_completed
+    description: A paid order confirmed by the server, carrying the browser's session id and device type.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+      - name: $device_type
+        description: The device the order was placed on, copied from the browser session.
+
+numerator:
+  label: Mobile sessions with a paid order
+  aggregate: unique_sessions
+  event: order_completed
+  where:
+    - property: $device_type
+      op: eq
+      value: Mobile
+denominator:
+  label: Mobile sessions
+  aggregate: unique_sessions
+  event: $pageview
+  where:
+    - property: $device_type
+      op: eq
+      value: Mobile
+
+noise:
+  type: binomial
+  min_denominator: 2000
+  volume_unit: mobile sessions a week
+  typical: 0.016
+  reference_volumes: [2000, 10000, 50000, 250000]
+
+example:
+  business: store
+  level: 0.0204
+  volume: 408000
+  trend: 0.04
+  season: 1
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Are orders losing their device type or session id, for example after moving the order event to the server?
+      yes: Orders with no device type rise while mobile orders fall by about as much.
+    spiked:
+      check: Did mobile page views stop recording somewhere, or did tablets start reporting as mobile?
+      yes: Mobile sessions fall with no matching fall in mobile ad clicks, or tablet sessions drop to near zero.
+  - id: os-and-browsers
+    label: iOS, Android and browser releases
+    breakdown: $os
+    feed: app-stores
+    dropped:
+      check: Did an iOS, Android, Safari or Chrome release this week break a payment sheet, autofill or a script?
+      yes: The drop concentrates on one operating system or browser version, from its release date.
+    spiked:
+      check: Did a platform update or your own fix clear a problem from an earlier release?
+      yes: The affected system returns to its usual rate and the others never moved.
+  - id: mobile-release
+    label: Mobile site release
+    dropped:
+      check: Did a release change the mobile product page, menu, sticky add-to-cart bar or checkout layout?
+      yes: The drop starts on the release day and desktop conversion holds.
+    spiked:
+      check: Did a mobile release or test ship, and is it on for everyone?
+      yes: The rise starts on the release day; confirm it isn't a tracking change before crediting it.
+  - id: traffic-mix
+    label: Social and in-app traffic
+    breakdown: utm_source
+    dropped:
+      check: Did more mobile traffic come from social ads that open in Instagram or TikTok's in-app browser?
+      yes: Sessions from one social source grow, and those sessions convert at a fraction of the mobile web.
+    spiked:
+      check: Did a social campaign pause, or did email and branded search take a larger share of mobile visits?
+      yes: Each source's own rate holds and only the mix moved.
+  - id: wallets
+    label: Wallets and payment sheets
+    feed: stripe
+    dropped:
+      check: Did Apple Pay, Google Pay or Shop Pay drop out of mobile checkout or start failing?
+      yes: Wallet payments on mobile fall while card payments hold.
+    spiked:
+      check: Did a wallet button launch on product pages or in the cart?
+      yes: Wallet orders rise from the launch day and mobile checkouts get shorter.
+
+diagnose_order: [tracking, os-and-browsers, mobile-release, traffic-mix, wallets]
+
+related: [conversion-rate, mobile-session-share, checkout-conversion, payment-success-rate, bounce-rate]
+
+prose:
+  why_it_matters: >-
+    Phones bring about two thirds of store sessions but convert well below desktop; at
+    Northwind, 1.9% against 2.9%. Mobile is where a store loses the most orders to small things,
+    such as a hidden button, a slow page or a payment sheet that doesn't open. Closing a fifth
+    of the gap on 408,000 mobile sessions a week is about 800 orders.
+  pitfalls:
+    - Orders sent from the server carry no device type, so mobile conversion reads near zero. Copy the device type and session id from the browser onto the order event.
+    - Tablets convert closer to desktop than to phones. This spec leaves them out; including them reads higher and isn't comparable.
+    - In-app browsers from Instagram and TikTok count as mobile sessions but convert far below the mobile web, so a social campaign lowers the rate without anything breaking.
+    - A shopper who browses on a phone and buys on a laptop counts as a lost mobile session and a desktop order. Read mobile conversion for change over time, not as what mobile is worth.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

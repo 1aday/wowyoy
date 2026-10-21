@@ -1,0 +1,124 @@
+id: refund-rate
+name: Refund rate
+aliases:
+  - Return rate
+  - Returns rate
+  - Refund percentage
+family: revenue
+kind: rate
+polarity: down-is-good
+
+definition:
+  one_line: Refunds issued this week as a share of this week's order revenue.
+  formula: Refunds issued ÷ order revenue after discounts, each by the week it happened
+
+events:
+  - name: order_refunded
+    description: A refund issued against an earlier order, full or partial.
+    also_called: [refund, Order Refunded, charge.refunded]
+    properties:
+      - name: order_id
+        description: The order refunded; links the refund to the week it was sold.
+      - name: amount
+        description: The refunded amount, excluding tax and shipping.
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: total
+        description: Order value after discounts, before tax and shipping.
+
+numerator:
+  label: Refunds issued
+  aggregate: sum
+  event: order_refunded
+  property: amount
+denominator:
+  label: Order revenue
+  aggregate: sum
+  event: order_completed
+  property: total
+
+noise:
+  type: process
+  min_denominator: 50
+  volume_unit: orders a week
+  typical: 0.06
+
+example:
+  business: store
+  level: 0.0335
+  volume: 13300
+  trend: 0
+
+drivers:
+  - id: tracking
+    label: Tracking and processing
+    dropped:
+      check: Did refund events stop syncing, for example after a returns app or processor change?
+      yes: Refunds in the payment processor hold while recorded refunds fall.
+    spiked:
+      check: Did a backlog of refunds get processed in one batch, or are refunds recorded twice?
+      yes: Refunds cluster on one or two days, or the same order_id carries a partial and a full refund.
+  - id: past-sales
+    label: Last month's sales
+    feed: shopping
+    dropped:
+      check: Did a post-season wave of returns just end?
+      yes: Refunds fall back as the orders from the busy weeks pass their return window.
+    spiked:
+      check: Did a big sale or gifting season end two to six weeks ago?
+      yes: Refunds rise in step with the orders of those weeks, not this week's, and the same weeks last year show it.
+  - id: product-batch
+    label: One product or batch
+    dropped:
+      check: Did fixing a defect, a size chart or a product description cut returns on one product?
+      yes: Refunds on that product fall from the weeks after the fix.
+    spiked:
+      check: Is one product, size or batch behind most of the refunds?
+      yes: Return reasons cluster on one product, often defective, not as described or wrong size.
+  - id: delivery
+    label: Delivery problems
+    dropped:
+      check: Did a carrier or warehouse problem that caused refunds clear?
+      yes: Refunds for orders not received fall back to their usual level.
+    spiked:
+      check: Did a carrier delay, lost parcels or a warehouse error lead to refunds for orders not received?
+      yes: Refunds for orders not received rise in one region or with one carrier.
+  - id: fraud
+    label: Fraud and disputes
+    feed: stripe
+    dropped:
+      check: Did tighter fraud rules cut refunds issued to settle disputes?
+      yes: Refunds on first orders with high values or shared addresses fall.
+    spiked:
+      check: Did a fraud ring or a wave of disputes get settled with refunds?
+      yes: Refunds concentrate on first orders with high values, new cards or shared shipping addresses.
+  - id: policy
+    label: Return policy
+    dropped:
+      check: Did the return window shorten, return shipping start costing, or exchanges get pushed over refunds?
+      yes: Refunds fall from the policy date while exchanges rise.
+    spiked:
+      check: Did returns become free, the window lengthen, or a try-before-you-buy option launch?
+      yes: Refunds rise from the policy date, on orders placed after it.
+
+diagnose_order: [tracking, past-sales, product-batch, delivery, fraud, policy]
+
+related: [net-revenue, orders, gross-margin, contribution-margin, gross-sales]
+
+prose:
+  why_it_matters: >-
+    Refunds are revenue the store already counted and then gave back, plus shipping both ways.
+    Because they follow sales by two to six weeks, the rate moves with last month's orders as
+    much as with today's quality. At Northwind, 3.5% of $1.33M of order revenue is about
+    $46,000 a week; one more point costs $13,300 a week before return shipping.
+  pitfalls:
+    - This spec divides refunds issued this week by this week's order revenue, so the rate rises for weeks after a big sale with no quality problem. For product quality, group refunds by the week of the original order instead.
+    - Exchanges and store credit aren't refunds and don't appear here, so a store that pushes exchanges sees the rate fall while returns hold.
+    - Partial refunds, price adjustments and goodwill credits count as refunds here. Tag them if you want returns alone.
+    - Chargebacks run through a separate flow in most processors and appear here only if they are recorded as refunds.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

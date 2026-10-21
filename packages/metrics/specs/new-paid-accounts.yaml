@@ -1,0 +1,119 @@
+id: new-paid-accounts
+name: New paid accounts
+aliases:
+  - New paying customers
+  - New paying accounts
+  - New logos
+family: activation
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: Accounts that started their first ever paid subscription this week.
+  formula: People whose first subscription_started event falls in the week
+
+events:
+  - name: subscription_started
+    description: The first paid period of a subscription, sent by the billing system when the first payment succeeds.
+    also_called: [Subscription Started, customer.subscription.created, invoice.paid (first)]
+    properties:
+      - name: subscription_id
+        description: The billing system's subscription id.
+      - name: plan
+        description: The plan subscribed to.
+      - name: mrr
+        description: The subscription's monthly amount after discounts, before tax.
+
+numerator:
+  label: Accounts with a first paid subscription
+  aggregate: first_time_users
+  event: subscription_started
+
+noise:
+  type: poisson
+  min_denominator: 10
+  volume_unit: new paid accounts a week
+  typical: 29
+  reference_volumes: [10, 30, 100, 300]
+
+example:
+  business: saas
+  level: 29
+  volume: 29
+  trend: 0.3
+
+drivers:
+  - id: billing-tracking
+    label: Billing events
+    feed: stripe
+    dropped:
+      check: Did subscription events stop syncing from billing, or did first payments start failing?
+      yes: New subscriptions in the billing dashboard hold while recorded ones fall, or failed first charges rise.
+    spiked:
+      check: Did a billing migration or plan change fire subscription_started for existing customers?
+      yes: Many of this week's new accounts had paid before under another subscription id.
+  - id: calendar
+    label: Month and quarter end
+    feed: holidays
+    dropped:
+      check: Is this a holiday week, or the first week of a month after a month-end rush?
+      yes: The same point in the month or year shows the same dip in earlier periods.
+    spiked:
+      check: Is this the last week of a month or quarter, when sales-led deals close?
+      yes: The same point in earlier months shows the same jump.
+  - id: trial-conversion
+    label: Trial conversion
+    metric: trial-conversion-rate
+    dropped:
+      check: Did a smaller share of trials convert?
+      yes: Trial conversion for the cohorts ending this week is below its usual range while trial starts held.
+    spiked:
+      check: Did a larger share of trials convert, after a pricing or onboarding change?
+      yes: Trial conversion for the cohorts ending this week is above its usual range.
+  - id: trial-starts
+    label: Trials a few weeks ago
+    metric: trial-starts
+    dropped:
+      check: Were trial starts low two to four weeks ago?
+      yes: Trial starts dipped one trial length earlier while conversion held.
+    spiked:
+      check: Was there a wave of trials two to four weeks ago?
+      yes: Trial starts rose one trial length earlier while conversion held.
+  - id: sales-pipeline
+    label: Sales-led deals
+    metric: demo-request-rate
+    dropped:
+      check: Did fewer demos or sales deals close this week?
+      yes: Deals closed in the CRM fall, often after a dip in demo requests a month or two earlier.
+    spiked:
+      check: Did a batch of sales deals close together?
+      yes: A few accounts closed through sales explain most of the rise.
+  - id: pricing
+    label: Pricing and plans
+    breakdown: plan
+    dropped:
+      check: Did prices rise, or a cheap plan or discount go away?
+      yes: New accounts fall on the affected plan from the day of the change.
+    spiked:
+      check: Did a discount, a new entry plan or a price-rise deadline pull purchases forward?
+      yes: New accounts jump on one plan, and the following weeks run below normal.
+
+diagnose_order: [billing-tracking, calendar, trial-conversion, trial-starts, sales-pipeline, pricing]
+
+related: [trial-conversion-rate, trial-starts, new-mrr, mrr, demo-request-rate]
+
+prose:
+  why_it_matters: >-
+    New paid accounts is where acquisition finally shows up as revenue. It counts first purchases
+    only, so a customer who cancels and comes back isn't new again. At 29 a week, chance alone moves
+    the count by about half, so judge it on four-week sums and look to trial conversion and the sales
+    pipeline for the cause.
+  pitfalls:
+    - Reactivations are not new accounts. Counting every subscription start inflates the number after a win-back campaign, so this spec counts first subscriptions only.
+    - Sales-led deals close at month and quarter end, so a weekly count looks lumpy for reasons nobody needs to fix.
+    - A billing migration or plan restructure can fire subscription events for existing customers. Check the count against the billing system after any migration.
+    - Count accounts, not users. When several teammates can buy for one workspace, identify the account as the paying person or group, or one purchase counts twice.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

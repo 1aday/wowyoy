@@ -102,6 +102,7 @@ queries:
       JOIN events AS e
         ON e.event_name = 'subscription_updated'
        AND DATE(e.occurred_at) < DATE_ADD(w.week, INTERVAL 1 WEEK)
+      WHERE TRUE
       QUALIFY ROW_NUMBER() OVER (
         PARTITION BY w.week, JSON_VALUE(e.properties, '$.subscription_id')
         ORDER BY e.occurred_at DESC
@@ -115,7 +116,7 @@ queries:
   snowflake: |-
     -- MRR at the end of each week from a subscription change log. Assumes WEEK_START = 1 (Monday).
     WITH weeks AS (
-      SELECT DATEADD(week, -SEQ4(), DATE_TRUNC('week', DATEADD(week, -1, CURRENT_DATE()))) AS week
+      SELECT DATEADD(week, -(ROW_NUMBER() OVER (ORDER BY SEQ4()) - 1), DATE_TRUNC('week', DATEADD(week, -1, CURRENT_DATE()))) AS week
       FROM TABLE(GENERATOR(ROWCOUNT => 26))
     ),
     latest AS (
@@ -171,7 +172,7 @@ drivers:
       check: Did a price change or a usage limit push customers to upgrade?
       yes: Expansion MRR jumps in the week the change shipped.
   - id: churn
-    label: Churned and contracted MRR
+    label: Churned MRR
     metric: churned-mrr
     feed: stripe
     dropped:

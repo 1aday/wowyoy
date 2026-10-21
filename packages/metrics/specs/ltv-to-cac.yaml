@@ -1,0 +1,360 @@
+id: ltv-to-cac
+name: LTV to CAC
+aliases:
+  - LTV:CAC
+  - LTV/CAC ratio
+  - LTV to CAC ratio
+  - CLV to CAC ratio
+family: customers
+kind: ratio
+polarity: up-is-good
+
+definition:
+  one_line: The gross profit a week's new customers bring in their first 365 days, for every dollar of ad spend that week.
+  formula: 12-month gross profit per new customer ÷ new customer acquisition cost, by first-order week (the cohort's 12-month gross profit ÷ that week's ad spend)
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: is_first_order
+        description: True when the store has no earlier order from this customer, from its own customer records.
+      - name: customer_id
+        description: The store's customer id, shared by guest and logged-in orders with the same email.
+      - name: total
+        description: Order value after discounts, before tax and shipping.
+      - name: cost_of_goods
+        description: What the items in the order cost the store.
+  - name: order_refunded
+    description: A refund issued against an earlier order, full or partial.
+    also_called: [refund, Order Refunded]
+    properties:
+      - name: order_id
+        description: The order the refund belongs to.
+      - name: amount
+        description: The refunded amount, excluding tax and shipping.
+  - name: ad_spend
+    description: One row per ad channel per day, synced from the ad platforms.
+    also_called: [Ad Spend, ad_cost, campaign_cost]
+    properties:
+      - name: spend
+        description: The day's spend on the channel, in the store's currency.
+      - name: channel
+        description: The ad platform, such as meta or google.
+
+numerator:
+  label: Cohort gross profit in its first 365 days
+  aggregate: sum
+  event: order_completed
+  property: total
+denominator:
+  label: Ad spend in the cohort week
+  aggregate: sum
+  event: ad_spend
+  property: spend
+
+queries:
+  hogql: |-
+    -- LTV to CAC: gross profit (order totals − cost of goods − refunds) from each first-order week's new customers over their first 365 days ÷ ad spend in that week. First-order weeks 79 to 54 weeks ago; younger cohorts are left out until their 365 days close.
+    SELECT
+      toString(c.week_start) AS week,
+      c.gross_profit AS numerator,
+      s.spend AS denominator,
+      if(s.spend > 0, c.gross_profit / s.spend, NULL) AS value
+    FROM (
+      SELECT toMonday(f.first_at) AS week_start, sum(o.gross_profit) AS gross_profit
+      FROM (
+        SELECT coalesce(properties.customer_id, toString(person_id)) AS customer_id, min(timestamp) AS first_at
+        FROM events
+        WHERE event = 'order_completed'
+          AND properties.is_first_order = 'true'
+          AND timestamp >= toMonday(now()) - toIntervalWeek(79)
+          AND timestamp < toMonday(now()) - toIntervalWeek(53)
+        GROUP BY customer_id
+      ) AS f
+      INNER JOIN (
+        SELECT po.customer_id AS customer_id, po.ts AS ts, po.total - po.cost - coalesce(r.refunded, 0) AS gross_profit
+        FROM (
+          SELECT
+            coalesce(properties.customer_id, toString(person_id)) AS customer_id,
+            properties.order_id AS order_id,
+            timestamp AS ts,
+            toFloat(properties.total) AS total,
+            coalesce(toFloat(properties.cost_of_goods), 0) AS cost
+          FROM events
+          WHERE event = 'order_completed'
+            AND timestamp >= toMonday(now()) - toIntervalWeek(79)
+        ) AS po
+        LEFT JOIN (
+          SELECT properties.order_id AS order_id, sum(toFloat(properties.amount)) AS refunded
+          FROM events
+          WHERE event = 'order_refunded'
+            AND timestamp >= toMonday(now()) - toIntervalWeek(79)
+          GROUP BY order_id
+        ) AS r ON r.order_id = po.order_id
+      ) AS o ON o.customer_id = f.customer_id
+      WHERE o.ts >= f.first_at
+        AND o.ts < f.first_at + toIntervalDay(365)
+      GROUP BY week_start
+    ) AS c
+    LEFT JOIN (
+      SELECT toMonday(timestamp) AS week_start, sum(toFloat(properties.spend)) AS spend
+      FROM events
+      WHERE event = 'ad_spend'
+        AND timestamp >= toMonday(now()) - toIntervalWeek(79)
+        AND timestamp < toMonday(now()) - toIntervalWeek(53)
+      GROUP BY week_start
+    ) AS s ON s.week_start = c.week_start
+    ORDER BY c.week_start
+  postgres: |-
+    -- LTV to CAC: gross profit (order totals − cost of goods − refunds) from each first-order week's new customers over their first 365 days ÷ ad spend in that week. First-order weeks 79 to 54 weeks ago; younger cohorts are left out until their 365 days close.
+    WITH refunds AS (
+      SELECT properties->>'order_id' AS order_id, sum((properties->>'amount')::numeric) AS refunded
+      FROM events
+      WHERE event_name = 'order_refunded'
+        AND occurred_at >= date_trunc('week', now()) - interval '79 weeks'
+      GROUP BY 1
+    ),
+    paid_orders AS (
+      SELECT
+        coalesce(e.properties->>'customer_id', e.user_id) AS customer_id,
+        e.properties->>'is_first_order' = 'true' AS is_first_order,
+        e.occurred_at,
+        (e.properties->>'total')::numeric
+          - coalesce((e.properties->>'cost_of_goods')::numeric, 0)
+          - coalesce(r.refunded, 0) AS gross_profit
+      FROM events e
+      LEFT JOIN refunds r ON r.order_id = e.properties->>'order_id'
+      WHERE e.event_name = 'order_completed'
+        AND e.occurred_at >= date_trunc('week', now()) - interval '79 weeks'
+    ),
+    first_orders AS (
+      SELECT customer_id, min(occurred_at) AS first_at
+      FROM paid_orders
+      WHERE is_first_order
+        AND occurred_at < date_trunc('week', now()) - interval '53 weeks'
+      GROUP BY customer_id
+    ),
+    cohort AS (
+      SELECT date_trunc('week', f.first_at)::date AS week, sum(o.gross_profit) AS gross_profit
+      FROM first_orders f
+      JOIN paid_orders o
+        ON o.customer_id = f.customer_id
+       AND o.occurred_at >= f.first_at
+       AND o.occurred_at < f.first_at + interval '365 days'
+      GROUP BY 1
+    ),
+    spend AS (
+      SELECT date_trunc('week', occurred_at)::date AS week, sum((properties->>'spend')::numeric) AS spend
+      FROM events
+      WHERE event_name = 'ad_spend'
+        AND occurred_at >= date_trunc('week', now()) - interval '79 weeks'
+        AND occurred_at < date_trunc('week', now()) - interval '53 weeks'
+      GROUP BY 1
+    )
+    SELECT
+      c.week,
+      c.gross_profit AS numerator,
+      s.spend AS denominator,
+      c.gross_profit / nullif(s.spend, 0) AS value
+    FROM cohort c
+    LEFT JOIN spend s ON s.week = c.week
+    ORDER BY c.week;
+  bigquery: |-
+    -- LTV to CAC: gross profit (order totals − cost of goods − refunds) from each first-order week's new customers over their first 365 days ÷ ad spend in that week. First-order weeks 79 to 54 weeks ago; younger cohorts are left out until their 365 days close.
+    WITH refunds AS (
+      SELECT JSON_VALUE(properties, '$.order_id') AS order_id, SUM(SAFE_CAST(JSON_VALUE(properties, '$.amount') AS FLOAT64)) AS refunded
+      FROM events
+      WHERE event_name = 'order_refunded'
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 79 WEEK))
+      GROUP BY order_id
+    ),
+    paid_orders AS (
+      SELECT
+        COALESCE(JSON_VALUE(e.properties, '$.customer_id'), e.user_id) AS customer_id,
+        JSON_VALUE(e.properties, '$.is_first_order') = 'true' AS is_first_order,
+        e.occurred_at,
+        SAFE_CAST(JSON_VALUE(e.properties, '$.total') AS FLOAT64)
+          - COALESCE(SAFE_CAST(JSON_VALUE(e.properties, '$.cost_of_goods') AS FLOAT64), 0)
+          - COALESCE(r.refunded, 0) AS gross_profit
+      FROM events AS e
+      LEFT JOIN refunds AS r ON r.order_id = JSON_VALUE(e.properties, '$.order_id')
+      WHERE e.event_name = 'order_completed'
+        AND e.occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 79 WEEK))
+    ),
+    first_orders AS (
+      SELECT customer_id, MIN(occurred_at) AS first_at
+      FROM paid_orders
+      WHERE is_first_order
+        AND occurred_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 53 WEEK))
+      GROUP BY customer_id
+    ),
+    cohort AS (
+      SELECT DATE_TRUNC(DATE(f.first_at), ISOWEEK) AS week, SUM(o.gross_profit) AS gross_profit
+      FROM first_orders AS f
+      JOIN paid_orders AS o
+        ON o.customer_id = f.customer_id
+       AND o.occurred_at >= f.first_at
+       AND o.occurred_at < TIMESTAMP_ADD(f.first_at, INTERVAL 365 DAY)
+      GROUP BY week
+    ),
+    spend AS (
+      SELECT DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week, SUM(SAFE_CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64)) AS spend
+      FROM events
+      WHERE event_name = 'ad_spend'
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 79 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 53 WEEK))
+      GROUP BY week
+    )
+    SELECT
+      c.week,
+      c.gross_profit AS numerator,
+      s.spend AS denominator,
+      SAFE_DIVIDE(c.gross_profit, s.spend) AS value
+    FROM cohort AS c
+    LEFT JOIN spend AS s ON s.week = c.week
+    ORDER BY c.week;
+  snowflake: |-
+    -- LTV to CAC: gross profit (order totals − cost of goods − refunds) from each first-order week's new customers over their first 365 days ÷ ad spend in that week. First-order weeks 79 to 54 weeks ago; younger cohorts are left out until their 365 days close. Assumes WEEK_START = 1 (Monday).
+    WITH refunds AS (
+      SELECT properties:order_id::string AS order_id, SUM(properties:amount::float) AS refunded
+      FROM events
+      WHERE event_name = 'order_refunded'
+        AND occurred_at >= DATEADD(week, -79, DATE_TRUNC('week', CURRENT_DATE()))
+      GROUP BY 1
+    ),
+    paid_orders AS (
+      SELECT
+        COALESCE(e.properties:customer_id::string, e.user_id) AS customer_id,
+        e.properties:is_first_order::boolean AS is_first_order,
+        e.occurred_at,
+        e.properties:total::float
+          - COALESCE(e.properties:cost_of_goods::float, 0)
+          - COALESCE(r.refunded, 0) AS gross_profit
+      FROM events AS e
+      LEFT JOIN refunds AS r ON r.order_id = e.properties:order_id::string
+      WHERE e.event_name = 'order_completed'
+        AND e.occurred_at >= DATEADD(week, -79, DATE_TRUNC('week', CURRENT_DATE()))
+    ),
+    first_orders AS (
+      SELECT customer_id, MIN(occurred_at) AS first_at
+      FROM paid_orders
+      WHERE is_first_order
+        AND occurred_at < DATEADD(week, -53, DATE_TRUNC('week', CURRENT_DATE()))
+      GROUP BY customer_id
+    ),
+    cohort AS (
+      SELECT DATE_TRUNC('week', f.first_at)::date AS week, SUM(o.gross_profit) AS gross_profit
+      FROM first_orders AS f
+      JOIN paid_orders AS o
+        ON o.customer_id = f.customer_id
+       AND o.occurred_at >= f.first_at
+       AND o.occurred_at < DATEADD(day, 365, f.first_at)
+      GROUP BY 1
+    ),
+    spend AS (
+      SELECT DATE_TRUNC('week', occurred_at)::date AS week, SUM(properties:spend::float) AS spend
+      FROM events
+      WHERE event_name = 'ad_spend'
+        AND occurred_at >= DATEADD(week, -79, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at < DATEADD(week, -53, DATE_TRUNC('week', CURRENT_DATE()))
+      GROUP BY 1
+    )
+    SELECT
+      c.week,
+      c.gross_profit AS numerator,
+      s.spend AS denominator,
+      DIV0NULL(c.gross_profit, s.spend) AS value
+    FROM cohort AS c
+    LEFT JOIN spend AS s ON s.week = c.week
+    ORDER BY c.week;
+
+noise:
+  type: process
+  min_denominator: 200
+  volume_unit: first-time customers in the cohort
+  typical: 1.7
+
+example:
+  business: store
+  level: 1.7
+  volume: 6800
+  trend: -0.05
+
+drivers:
+  - id: spend-tracking
+    label: Spend records
+    dropped:
+      check: Was spend double counted in the cohort week, such as a platform synced twice or a monthly invoice booked in one week?
+      yes: Spend in the cohort week is far above the ad platforms' own reports for those days.
+    spiked:
+      check: Did a channel's spend fail to sync for the cohort week?
+      yes: One channel shows zero or partial spend on days it was running.
+  - id: calendar
+    label: Holiday cohorts
+    feed: shopping
+    dropped:
+      check: Is this a Black Friday or holiday cohort, won at a peak price and reordering less?
+      yes: The same cohort weeks last year show the same dip.
+    spiked:
+      check: Is this a quiet-season cohort, won cheaply from returning visitors and organic search?
+      yes: The same cohort weeks last year show the same rise.
+  - id: cac
+    label: Acquisition cost
+    metric: ncac
+    dropped:
+      check: Did new customers cost more to win in the cohort week?
+      yes: New customer CAC for that week sits above its usual range while 12-month value holds.
+    spiked:
+      check: Did new customers cost less to win, from cheaper media or more organic buyers?
+      yes: New customer CAC for that week sits below its usual range.
+  - id: ltv
+    label: 12-month value
+    metric: customer-lifetime-value
+    dropped:
+      check: Did the cohort spend less in its first year?
+      yes: Customer lifetime value for the cohort falls while CAC holds.
+    spiked:
+      check: Did the cohort spend more in its first year?
+      yes: Customer lifetime value for the cohort rises while CAC holds.
+  - id: margin
+    label: Gross margin
+    metric: gross-margin
+    dropped:
+      check: Did product costs rise or discounts deepen during the cohort's year?
+      yes: Revenue per customer holds while gross margin on their orders falls.
+    spiked:
+      check: Did a price rise or cheaper sourcing lift margin on the cohort's orders?
+      yes: Gross margin on the cohort's orders runs above earlier cohorts.
+  - id: channel-mix
+    label: Channel mix
+    feed: ad-platforms
+    dropped:
+      check: Did spend shift in the cohort week to a channel that wins lower-value buyers?
+      yes: Spend share moved to one channel whose customers have a lower 12-month value.
+    spiked:
+      check: Did spend shift toward channels whose customers are worth more?
+      yes: Spend share moved to a channel whose customers have a higher 12-month value.
+
+diagnose_order: [spend-tracking, calendar, cac, ltv, margin, channel-mix]
+
+related: [customer-lifetime-value, ncac, blended-cac, cac-payback, gross-margin]
+
+prose:
+  why_it_matters: >-
+    LTV to CAC asks whether acquisition pays: at 1.0 a cohort's first year of gross profit only just
+    repays what it cost to win. SaaS investors look for 3 or more over a customer's lifetime; on 12
+    months of realized gross profit, healthy stores usually sit between 1.5 and 3. It checks growth
+    in both directions: below 1 is growth bought too dear, and well above 3 often means the budget
+    could be larger.
+  pitfalls:
+    - Use gross profit, not revenue. A revenue ratio of 3 at a 40% margin is a gross-profit ratio of 1.2, which barely pays back.
+    - Blended CAC divides all spend by all new customers and credits paid media with organic buyers, which flatters the ratio. Read paid-channel numbers before raising budgets.
+    - Ratios built from projected lifetimes, such as ARPA × margin ÷ churn in SaaS, explode as churn nears zero. Cap the lifetime at 3 to 5 years, or use realized months as this spec does.
+    - Spend booked in the wrong week, from monthly invoices or a failed sync, makes one cohort look free and the next ruinous. Check daily spend by channel before reading a jump.
+    - Only cohorts whose 365 days have closed are reported, so this lags by a year. Steer today's acquisition with new customer CAC and second order rate.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

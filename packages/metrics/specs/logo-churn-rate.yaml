@@ -1,0 +1,296 @@
+id: logo-churn-rate
+name: Logo churn rate
+aliases:
+  - Customer churn rate
+  - Churn rate
+  - Logo churn
+  - Account churn rate
+  - Subscriber churn rate
+family: subscription
+kind: rate
+polarity: down-is-good
+
+definition:
+  one_line: The share of customers paying at the start of the week who were no longer paying at its end.
+  formula: Customers paying at Monday 00:00 UTC with no paying subscription at Sunday 23:59 ÷ customers paying at Monday 00:00
+
+events:
+  - name: subscription_updated
+    description: Any change to a subscription's plan, quantity, discount or status, with its new monthly amount.
+    also_called: [customer.subscription.updated, Subscription Updated, subscription_changed]
+    properties:
+      - name: subscription_id
+        description: The billing system's subscription id.
+      - name: mrr
+        description: The subscription's monthly amount after the change; zero on a free plan.
+      - name: status
+        description: active, trialing, past_due or canceled.
+
+numerator:
+  label: Customers who stopped paying
+  aggregate: unique_users
+  event: subscription_updated
+  where:
+    - property: status
+      op: eq
+      value: canceled
+
+queries:
+  hogql: |-
+    -- Logo churn rate for each of the last 26 complete ISO weeks (Monday start, UTC): customers paying at the start of the week with no paying subscription at its end ÷ customers paying at the start. A customer is the person on the subscription; paying means active or past_due with MRR above zero.
+    SELECT
+      toString(monday) AS week,
+      countIf(paying_end = 0) AS numerator,
+      count() AS denominator,
+      countIf(paying_end = 0) / count() AS value
+    FROM (
+      SELECT
+        monday,
+        account,
+        maxIf(paying, weeks_back = 1) AS paying_start,
+        maxIf(paying, weeks_back = 0) AS paying_end
+      FROM (
+        SELECT
+          s.monday AS monday,
+          s.weeks_back AS weeks_back,
+          e.sub_id AS sub_id,
+          argMax(e.person, e.ts) AS account,
+          if(argMax(e.state, e.ts) IN ('active', 'past_due') AND argMax(e.amount, e.ts) > 0, 1, 0) AS paying
+        FROM (
+          SELECT
+            toMonday(now()) - toIntervalWeek(arrayJoin(range(1, 27))) AS monday,
+            arrayJoin([0, 1]) AS weeks_back
+        ) AS s
+        CROSS JOIN (
+          SELECT
+            toString(properties.subscription_id) AS sub_id,
+            person_id AS person,
+            toFloat(properties.mrr) AS amount,
+            toString(properties.status) AS state,
+            timestamp AS ts
+          FROM events
+          WHERE event = 'subscription_updated'
+        ) AS e
+        WHERE e.ts < s.monday + toIntervalWeek(1) - toIntervalWeek(s.weeks_back)
+        GROUP BY monday, weeks_back, sub_id
+      )
+      GROUP BY monday, account
+    )
+    WHERE paying_start = 1
+    GROUP BY monday
+    ORDER BY monday
+  postgres: |-
+    -- Logo churn rate for each of the last 26 complete ISO weeks (Monday start, UTC): customers paying at the start of the week with no paying subscription at its end ÷ customers paying at the start. A customer is the event's user_id; paying means active or past_due with MRR above zero.
+    WITH snaps AS (
+      SELECT w.week, b.weeks_back, w.week + (1 - b.weeks_back) * interval '1 week' AS cutoff
+      FROM generate_series(
+        date_trunc('week', now()) - interval '26 weeks',
+        date_trunc('week', now()) - interval '1 week',
+        interval '1 week'
+      ) AS w(week)
+      CROSS JOIN (VALUES (0), (1)) AS b(weeks_back)
+    ),
+    latest AS (
+      SELECT DISTINCT ON (s.week, s.weeks_back, e.properties->>'subscription_id')
+        s.week,
+        s.weeks_back,
+        e.user_id AS customer,
+        (e.properties->>'mrr')::numeric AS mrr,
+        e.properties->>'status' AS status
+      FROM snaps AS s
+      JOIN events AS e
+        ON e.event_name = 'subscription_updated'
+       AND e.occurred_at < s.cutoff
+      ORDER BY s.week, s.weeks_back, e.properties->>'subscription_id', e.occurred_at DESC
+    ),
+    paying AS (
+      SELECT DISTINCT week, weeks_back, customer
+      FROM latest
+      WHERE status IN ('active', 'past_due') AND mrr > 0
+    )
+    SELECT
+      st.week::date AS week,
+      count(*) FILTER (WHERE en.customer IS NULL) AS numerator,
+      count(*) AS denominator,
+      (count(*) FILTER (WHERE en.customer IS NULL))::numeric / nullif(count(*), 0) AS value
+    FROM paying AS st
+    LEFT JOIN paying AS en
+      ON en.week = st.week AND en.weeks_back = 0 AND en.customer = st.customer
+    WHERE st.weeks_back = 1
+    GROUP BY st.week
+    ORDER BY st.week;
+  bigquery: |-
+    -- Logo churn rate for each of the last 26 complete ISO weeks (Monday start, UTC): customers paying at the start of the week with no paying subscription at its end ÷ customers paying at the start. A customer is the event's user_id; paying means active or past_due with MRR above zero.
+    WITH snaps AS (
+      SELECT week, weeks_back, DATE_ADD(week, INTERVAL (1 - weeks_back) WEEK) AS cutoff
+      FROM UNNEST(GENERATE_DATE_ARRAY(
+        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK),
+        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK),
+        INTERVAL 1 WEEK
+      )) AS week
+      CROSS JOIN UNNEST([0, 1]) AS weeks_back
+    ),
+    latest AS (
+      SELECT
+        s.week,
+        s.weeks_back,
+        e.user_id AS customer,
+        SAFE_CAST(JSON_VALUE(e.properties, '$.mrr') AS FLOAT64) AS mrr,
+        JSON_VALUE(e.properties, '$.status') AS status
+      FROM snaps AS s
+      JOIN events AS e
+        ON DATE(e.occurred_at) < s.cutoff
+      WHERE e.event_name = 'subscription_updated'
+      QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY s.week, s.weeks_back, JSON_VALUE(e.properties, '$.subscription_id')
+        ORDER BY e.occurred_at DESC
+      ) = 1
+    ),
+    paying AS (
+      SELECT DISTINCT week, weeks_back, customer
+      FROM latest
+      WHERE status IN ('active', 'past_due') AND mrr > 0
+    )
+    SELECT
+      st.week,
+      COUNTIF(en.customer IS NULL) AS numerator,
+      COUNT(*) AS denominator,
+      SAFE_DIVIDE(COUNTIF(en.customer IS NULL), COUNT(*)) AS value
+    FROM paying AS st
+    LEFT JOIN paying AS en
+      ON en.week = st.week AND en.weeks_back = 0 AND en.customer = st.customer
+    WHERE st.weeks_back = 1
+    GROUP BY st.week
+    ORDER BY st.week;
+  snowflake: |-
+    -- Logo churn rate for each of the last 26 complete ISO weeks (Monday start, UTC): customers paying at the start of the week with no paying subscription at its end ÷ customers paying at the start. A customer is the event's user_id; paying means active or past_due with MRR above zero. Assumes WEEK_START = 1 (Monday).
+    WITH weeks AS (
+      SELECT DATEADD(week, -ROW_NUMBER() OVER (ORDER BY SEQ4()), DATE_TRUNC('week', CURRENT_DATE())) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    snaps AS (
+      SELECT w.week, b.weeks_back, DATEADD(week, 1 - b.weeks_back, w.week) AS cutoff
+      FROM weeks AS w
+      CROSS JOIN (VALUES (0), (1)) AS b (weeks_back)
+    ),
+    latest AS (
+      SELECT
+        s.week,
+        s.weeks_back,
+        e.user_id AS customer,
+        e.properties:mrr::float AS mrr,
+        e.properties:status::string AS status
+      FROM snaps AS s
+      JOIN events AS e
+        ON e.event_name = 'subscription_updated'
+       AND e.occurred_at < s.cutoff
+      QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY s.week, s.weeks_back, e.properties:subscription_id::string
+        ORDER BY e.occurred_at DESC
+      ) = 1
+    ),
+    paying AS (
+      SELECT DISTINCT week, weeks_back, customer
+      FROM latest
+      WHERE status IN ('active', 'past_due') AND mrr > 0
+    )
+    SELECT
+      st.week,
+      COUNT_IF(en.customer IS NULL) AS numerator,
+      COUNT(*) AS denominator,
+      COUNT_IF(en.customer IS NULL) / NULLIF(COUNT(*), 0) AS value
+    FROM paying AS st
+    LEFT JOIN paying AS en
+      ON en.week = st.week AND en.weeks_back = 0 AND en.customer = st.customer
+    WHERE st.weeks_back = 1
+    GROUP BY st.week
+    ORDER BY st.week;
+
+noise:
+  type: binomial
+  min_denominator: 300
+  volume_unit: paying customers at week start
+  typical: 0.0056
+  reference_volumes: [500, 2000, 8000, 30000]
+
+example:
+  business: saas
+  level: 0.0056
+  volume: 1850
+  trend: 0.18
+
+drivers:
+  - id: billing-sync
+    label: Billing sync
+    dropped:
+      check: Did cancellations or status changes stop reaching the event log?
+      yes: The billing system shows more ended subscriptions this week than the snapshot does.
+    spiked:
+      check: Did a sync or migration mark live customers as canceled, or cancel old unpaid subscriptions in bulk?
+      yes: Customers leave the paying count on one day with no cancellation in the billing system, or the ones that left had been past due for weeks.
+  - id: involuntary
+    label: Failed payments
+    feed: stripe
+    dropped:
+      check: Did dunning, retries or a card updater recover customers who would have lapsed?
+      yes: Fewer customers end in past_due and then canceled, while voluntary cancellations hold.
+    spiked:
+      check: Did more customers lapse for failed payments, from expiring cards, a dunning change or a processor incident?
+      yes: The extra churn is customers who went past_due first; Stripe shows an incident or more declines.
+  - id: renewal-cohort
+    label: Renewals due
+    dropped:
+      check: Did few annual or quarterly renewals fall due this week?
+      yes: Renewals due were unusually few; expect the rate to return to normal when they are.
+    spiked:
+      check: Did a large group of annual plans reach their renewal date?
+      yes: The customers who left cluster on start dates one year ago.
+  - id: plan-split
+    label: Plan
+    breakdown: plan
+    dropped:
+      check: Is the fall concentrated in one plan?
+      yes: One plan's churn falls after a change there, such as new onboarding or a price cut.
+    spiked:
+      check: Is one plan losing far more customers than the rest?
+      yes: One plan's churn jumps, often the cheapest, after a price or packaging change.
+  - id: new-customers
+    label: New customers leaving early
+    metric: activation-rate
+    dropped:
+      check: Did cohorts that went through a better onboarding reach their first renewals?
+      yes: Customers who signed up after an onboarding change churn less in their first months than earlier cohorts.
+    spiked:
+      check: Is the churn concentrated in customers in their first 90 days?
+      yes: Young customers are most of the churn, which points at onboarding, activation or a mis-sold segment.
+  - id: usage-decline
+    label: Usage before leaving
+    metric: wau
+    dropped:
+      check: Did usage at accounts that looked at risk recover?
+      yes: Weekly active users at low-usage accounts rose in the weeks before they would have renewed.
+    spiked:
+      check: Did the customers who left stop using the product weeks before they canceled?
+      yes: Active users at those accounts fell for a month or more first, so the cause is upstream, in usage.
+
+diagnose_order: [billing-sync, involuntary, renewal-cohort, plan-split, new-customers, usage-decline]
+
+related: [churned-mrr, gross-revenue-retention, net-revenue-retention, arpa, customer-lifetime-value]
+
+prose:
+  why_it_matters: >-
+    Logo churn counts customers, not dollars, so it shows people leaving even when a few large
+    accounts keep revenue churn low. A weekly rate of 0.56% sounds small and is about 2.4% a
+    month, which replaces a quarter of the customer base every year. At 1,900 customers, chance
+    alone moves one week's rate by nearly as much as the rate itself, so read it over four weeks
+    or more.
+  pitfalls:
+    - Divide by customers paying at the start of the period. Using the end, or an average, lets this week's sign-ups dilute the rate.
+    - Customers who start and leave inside the same week are not in the starting count, so they are not in the numerator either. Count them on their own if they are common.
+    - A weekly rate is not a monthly rate divided by four. Convert with 1 − (1 − weekly)^4.35, which turns 0.56% a week into about 2.4% a month.
+    - Moving to a free plan is churn here, because the customer stopped paying. Report it apart from cancellations if free plans are common.
+    - Counting subscriptions instead of customers inflates churn every time someone changes plan by canceling one subscription and starting another.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

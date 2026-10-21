@@ -1,0 +1,122 @@
+id: new-customer-revenue-share
+name: New customer revenue share
+aliases:
+  - First-order revenue share
+  - Revenue from new customers
+  - New vs returning revenue
+family: customers
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of this week's order revenue that came from customers' first orders.
+  formula: Order totals of first orders ÷ order totals of all orders, after discounts, before tax, shipping and refunds
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: is_first_order
+        description: True when the store has no earlier order from this customer, from its own customer records.
+      - name: total
+        description: Order value after discounts, before tax and shipping.
+      - name: coupon
+        description: The discount code used, if any.
+
+numerator:
+  label: Revenue from first orders
+  aggregate: sum
+  event: order_completed
+  property: total
+  where:
+    - property: is_first_order
+      op: eq
+      value: true
+denominator:
+  label: Revenue from all orders
+  aggregate: sum
+  event: order_completed
+  property: total
+  where:
+    - property: is_first_order
+      op: is_set
+
+noise:
+  type: process
+  min_denominator: 100
+  volume_unit: orders a week
+  typical: 0.58
+
+example:
+  business: store
+  level: 0.58
+  volume: 13000
+  trend: -0.02
+  season: 0.5
+
+drivers:
+  - id: tracking
+    label: First-order flag
+    dropped:
+      check: Did an import or customer merge start marking first orders as repeat?
+      yes: The share falls on one day while new customers in the store admin hold.
+    spiked:
+      check: Did a migration, a checkout app or a guest-checkout change reset order history, so returning buyers look new?
+      yes: The share jumps overnight while total revenue barely moves.
+  - id: calendar
+    label: Calendar
+    feed: shopping
+    dropped:
+      check: Is this the quiet week after a sale, or a loyalty or members-only event?
+      yes: The same week last year shows the same dip once aligned on the event.
+    spiked:
+      check: Is this a sale, holiday or launch week that brings first-time buyers?
+      yes: The same week last year shows the same jump once aligned on the event.
+  - id: new-customers
+    label: New customers
+    metric: new-customers
+    dropped:
+      check: Did fewer first-time buyers arrive, for example after paid spend was cut?
+      yes: New customers fall while returning customers hold.
+    spiked:
+      check: Did a campaign, a launch or a press mention bring a wave of first-time buyers?
+      yes: New customers rise while returning customers hold.
+  - id: returning-customers
+    label: Returning customers
+    metric: returning-customers
+    dropped:
+      check: Did a campaign or a restock bring existing customers back?
+      yes: Returning customers rise while new customers hold; the share fell for a good reason.
+    spiked:
+      check: Did existing customers stop coming back, from a missed email or a stock-out?
+      yes: Returning customers fall while new customers hold; the share rose by subtraction.
+  - id: first-order-value
+    label: First-order offers
+    breakdown: coupon
+    dropped:
+      check: Did a welcome discount deepen, making first orders smaller?
+      yes: First-order count holds while revenue per first order falls, concentrated in one code.
+    spiked:
+      check: Did a welcome discount end, or a bundle lift first-order value?
+      yes: First-order count holds while revenue per first order rises.
+
+diagnose_order: [tracking, calendar, new-customers, returning-customers, first-order-value]
+
+related: [new-customers, repeat-order-share, returning-customers, net-revenue, ncac]
+
+prose:
+  why_it_matters: >-
+    New customer revenue share splits revenue into what the store bought this week and what it kept.
+    A store with 80% of revenue from first orders is renting its growth from ad platforms, and its
+    revenue falls as soon as spend does; at Northwind the share is about 58%. Read it with repeat
+    order share, its mirror in order counts.
+  pitfalls:
+    - First orders are often smaller because of welcome discounts, so this share runs a few points below the share of orders from new customers. Both are right; don't mix them.
+    - A rise is good only if returning revenue held, because the share also climbs when existing customers stop buying.
+    - It is a share of order totals before refunds, which can't be split by first or repeat order in the week they are issued. A sale week with heavy returns overstates it.
+    - Orders without the first-order flag are left out of both sides. If many lack it, fix the tracking before reading the share.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

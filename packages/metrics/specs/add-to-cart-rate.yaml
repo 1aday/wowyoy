@@ -1,0 +1,127 @@
+id: add-to-cart-rate
+name: Add-to-cart rate
+aliases:
+  - ATC rate
+  - Add to cart conversion rate
+  - Cart addition rate
+family: conversion
+catalog_id: add_to_cart_rate
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of sessions that viewed a product and added something to the cart, the store's clearest read on product pages.
+  formula: Sessions that added to cart ÷ sessions that viewed a product
+
+events:
+  - name: product_viewed
+    description: A product detail page rendered with its product, once per view.
+    also_called: [view_item, Product Viewed, product_viewed]
+    properties:
+      - name: product_id
+        description: The product shown.
+  - name: product_added
+    description: An item added to the cart from any button, confirmed by the cart, not the click.
+    also_called: [add_to_cart, Product Added, product_added_to_cart]
+    properties:
+      - name: product_id
+        description: The product added.
+      - name: quantity
+        description: Units added in this action.
+      - name: price
+        description: Unit price at the time of adding, before discounts.
+
+numerator:
+  label: Sessions that added to cart
+  aggregate: unique_sessions
+  event: product_added
+denominator:
+  label: Sessions that viewed a product
+  aggregate: unique_sessions
+  event: product_viewed
+
+noise:
+  type: binomial
+  min_denominator: 300
+  volume_unit: product-viewing sessions a week
+  typical: 0.1
+  reference_volumes: [1000, 5000, 25000, 100000]
+
+example:
+  business: store
+  level: 0.108
+  volume: 372000
+  trend: 0.02
+  season: 0.5
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Did a theme update or a new cart drawer app stop product_added firing on some buttons?
+      yes: Orders and checkout starts hold while recorded adds fall, often from one template or device.
+    spiked:
+      check: Is product_added now firing on quantity changes, on both the drawer and the form, or on page load?
+      yes: Adds per session jump while checkout starts don't follow.
+  - id: price-and-offers
+    label: Prices, sales and the calendar
+    feed: shopping
+    dropped:
+      check: Did a sale end, prices rise, or the free-shipping threshold move this week?
+      yes: Adds fall on the products whose price or offer changed, from the day it changed.
+    spiked:
+      check: Is a sale, a holiday or a new offer lifting adds, and do checkout starts follow?
+      yes: Adds rise on discounted products; if checkout starts don't rise with them, shoppers are comparing, not buying.
+  - id: stock
+    label: Stock and sizes
+    dropped:
+      check: Did best sellers or common sizes go out of stock?
+      yes: Views hold on the top products while their adds fall to near zero.
+    spiked:
+      check: Did a best seller or a missing size come back in stock?
+      yes: Adds jump on the restocked products from the restock day while the rest hold.
+  - id: page-release
+    label: Product page changes
+    dropped:
+      check: Did a release move the add-to-cart button, add a required option, slow the page or change photos or reviews?
+      yes: The drop starts on the release day across every traffic source.
+    spiked:
+      check: Did a release or test ship a clearer buy box, and is it the same for everyone?
+      yes: The rise starts on the release day; confirm the test isn't counting one add twice.
+  - id: device-split
+    label: Mobile vs desktop
+    breakdown: $device_type
+    dropped:
+      check: Is the drop on mobile only, for example a sticky add-to-cart bar that stopped showing?
+      yes: Mobile falls while desktop holds, starting on a release day.
+    spiked:
+      check: Is the rise on one device type only?
+      yes: One device jumps after a release while the other holds.
+  - id: traffic-mix
+    label: Who is browsing
+    breakdown: utm_source
+    dropped:
+      check: Did more browsers arrive from a low-intent source, such as broad paid social or a gift guide?
+      yes: One source gains share of product views and adds far less often than the rest.
+    spiked:
+      check: Did a high-intent source grow, such as email or branded search?
+      yes: One source gains share of product views while each source's own rate holds.
+
+diagnose_order: [tracking, price-and-offers, stock, page-release, device-split, traffic-mix]
+
+related: [product-view-rate, checkout-start-rate, cart-abandonment-rate, conversion-rate, aov]
+
+prose:
+  why_it_matters: >-
+    Add-to-cart rate is where price, photos, reviews and stock show up first, before checkout
+    can help or hurt. On 372,000 product-viewing sessions a week, one point is about 3,700
+    carts, and with a third of carts becoming orders that is roughly 1,200 orders a week.
+  pitfalls:
+    - Shopify's dashboard divides adds by all sessions, not product-viewing sessions, so the same store reads about 6.7% there and 10.8% here. Compare like with like.
+    - Quick-add buttons on collection pages and upsells add to cart without a product view, so heavy quick-add stores see this rate drift up with no change in product pages.
+    - Counting add events instead of sessions rewards quantity buttons; three taps on plus are one shopper. This spec counts sessions.
+    - Adding to cart is cheap intent. A rise that checkout starts don't follow is usually a promotion, a tracking change or price comparison, not better product pages.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

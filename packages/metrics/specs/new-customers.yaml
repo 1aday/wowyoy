@@ -1,0 +1,126 @@
+id: new-customers
+name: New customers
+aliases:
+  - First-time customers
+  - First-time buyers
+  - New buyers
+family: customers
+catalog_id: new_customers
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: Customers placing their first ever order this week, each counted once.
+  formula: Distinct customers with an order flagged as their first, by order week
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: is_first_order
+        description: True when the store has no earlier order from this customer, from its own customer records.
+      - name: customer_id
+        description: The store's customer id, shared by guest and logged-in orders with the same email.
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+      - name: coupon
+        description: The discount code used, if any.
+
+numerator:
+  label: Customers with a first order
+  aggregate: unique_users
+  event: order_completed
+  where:
+    - property: is_first_order
+      op: eq
+      value: true
+
+noise:
+  type: poisson
+  min_denominator: 30
+  volume_unit: new customers a week
+  typical: 8000
+
+example:
+  business: store
+  level: 8100
+  volume: 8100
+  trend: 0.18
+
+drivers:
+  - id: tracking
+    label: First-order flag
+    dropped:
+      check: Did a checkout app, store migration or tracking change stop the first-order flag being set?
+      yes: Total orders hold while orders flagged as first fall, and the store's own new-customer report disagrees.
+    spiked:
+      check: Did a migration, customer import or guest-checkout change reset order history, so returning buyers look new?
+      yes: New customers jump while total orders barely move and returning customers fall by about the same number.
+  - id: calendar
+    label: Calendar
+    feed: shopping
+    dropped:
+      check: Was last week a sale or holiday week, or is this the lull after one?
+      yes: The same week last year shows the same dip once aligned on the event.
+    spiked:
+      check: Is this week Black Friday, a holiday or a store-wide sale?
+      yes: The same week last year shows the same jump; sale weeks bring more first-time buyers than any others.
+  - id: paid-acquisition
+    label: Paid acquisition
+    metric: ad-spend
+    feed: ad-platforms
+    dropped:
+      check: Did ad spend fall, a campaign pause, or an ad account get limited or disapproved?
+      yes: Spend or impressions fall in one channel on the same days that first orders do.
+    spiked:
+      check: Did spend rise or a new campaign launch?
+      yes: New customers rise with spend in one channel; check new customer CAC to see what they cost.
+  - id: offers
+    label: First-order offers
+    breakdown: coupon
+    dropped:
+      check: Did a welcome discount, free-shipping offer or affiliate code end?
+      yes: First orders using that code fall to near zero while other first orders hold.
+    spiked:
+      check: Is one code, an influencer or an affiliate behind the jump?
+      yes: A single coupon accounts for most of the extra first orders.
+  - id: traffic
+    label: New visitors
+    metric: sessions
+    feed: google-search
+    dropped:
+      check: Did fewer people arrive, and from which channel?
+      yes: Sessions fall in one channel, often organic search after a ranking change, by about as much as first orders.
+    spiked:
+      check: Did a press mention, a viral post or a ranking gain bring new visitors?
+      yes: Sessions rise from one referrer or channel in the days first orders do.
+  - id: conversion
+    label: Store conversion
+    metric: conversion-rate
+    dropped:
+      check: Did the share of visits that buy fall, and at which step?
+      yes: Traffic holds while conversion falls; one funnel step explains most of it.
+    spiked:
+      check: Did a site change or a price cut make more first-time visitors buy?
+      yes: Traffic holds while conversion rises from the day the change shipped.
+
+diagnose_order: [tracking, calendar, paid-acquisition, offers, traffic, conversion]
+
+related: [returning-customers, repeat-order-share, ncac, second-order-rate, new-customer-revenue-share]
+
+prose:
+  why_it_matters: >-
+    New customers are the part of demand a store has to win again every week; at Northwind they
+    place about 62% of orders. The count is also the denominator of acquisition cost, so a miscount
+    moves new customer CAC, LTV to CAC and payback with it. Read it with what it cost: twice the new
+    customers at three times the price is not growth.
+  pitfalls:
+    - Deriving the first order from analytics history makes every buyer look new for months after tracking starts. Use the store's own records, such as Shopify's customer order count, to set the flag.
+    - Guest checkouts under a new email, or a customer who changes email, count as new again. Match customers on the store's customer id, not the browser.
+    - A store migration, a new checkout app or a customer import can reset order history and turn returning buyers into new ones overnight; total orders stay flat while this jumps.
+    - Sale weeks fill this number with discount buyers who rarely come back. Compare Black Friday with last year's Black Friday, and judge the cohort later by its second order rate.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

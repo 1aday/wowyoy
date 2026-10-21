@@ -1,0 +1,229 @@
+id: bounce-rate
+name: Bounce rate
+aliases:
+  - Website bounce rate
+  - Bounced sessions
+  - Single-page session rate
+family: traffic
+kind: rate
+polarity: down-is-good
+
+definition:
+  one_line: The share of sessions that view one page, take no action and leave within 10 seconds.
+  formula: Sessions with one page view, no click or key action and under 10 seconds ÷ sessions with a page view
+
+events:
+  - name: $pageview
+    description: One page load or client-side route change, captured in the browser.
+    also_called: [page_view, Page Viewed, page]
+    properties:
+      - name: $session_id
+        description: Set by the analytics SDK; ties every event in a visit together.
+      - name: $pathname
+        description: The landing page path, for finding the page that bounces.
+  - name: $autocapture
+    description: A click, form change or submit captured automatically by PostHog. Counts as engagement.
+    also_called: [click, user_engagement]
+  - name: $pageleave
+    description: Sent when the visitor leaves a page; its timestamp gives time on the last page.
+    also_called: [page_leave]
+
+numerator:
+  label: Bounced sessions
+  aggregate: unique_sessions
+  event: $pageview
+denominator:
+  label: Sessions
+  aggregate: unique_sessions
+  event: $pageview
+
+queries:
+  hogql: |-
+    -- Bounce rate per week: sessions with one page view, no click or key action and under 10 seconds ÷ sessions with a page view.
+    SELECT week, numerator, denominator, if(denominator > 0, numerator / denominator, NULL) AS value
+    FROM (
+      SELECT
+        week,
+        countIf(pageviews = 1 AND actions = 0 AND seconds < 10) AS numerator,
+        count() AS denominator
+      FROM (
+        SELECT
+          $session_id AS session_id,
+          toMonday(min(timestamp)) AS week,
+          countIf(event = '$pageview') AS pageviews,
+          countIf(event IN ('$autocapture', 'product_added', 'product_searched', 'checkout_started', 'signed_up', 'order_completed')) AS actions,
+          dateDiff('second', min(timestamp), max(timestamp)) AS seconds
+        FROM events
+        WHERE $session_id IS NOT NULL
+          AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
+          AND timestamp < toStartOfWeek(now(), 1)
+        GROUP BY session_id
+        HAVING pageviews > 0
+      )
+      GROUP BY week
+    )
+    ORDER BY week
+  postgres: |-
+    -- Bounce rate per week: sessions with one page view, no click or key action and under 10 seconds ÷ sessions with a page view.
+    WITH visits AS (
+      SELECT
+        session_id,
+        date_trunc('week', min(occurred_at))::date AS week,
+        count(*) FILTER (WHERE event_name = '$pageview') AS pageviews,
+        count(*) FILTER (
+          WHERE event_name IN ('$autocapture', 'product_added', 'product_searched', 'checkout_started', 'signed_up', 'order_completed')
+        ) AS actions,
+        extract(epoch FROM max(occurred_at) - min(occurred_at)) AS seconds
+      FROM events
+      WHERE session_id IS NOT NULL
+        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
+        AND occurred_at < date_trunc('week', now())
+      GROUP BY session_id
+    )
+    SELECT
+      week,
+      count(*) FILTER (WHERE pageviews = 1 AND actions = 0 AND seconds < 10) AS numerator,
+      count(*) AS denominator,
+      (count(*) FILTER (WHERE pageviews = 1 AND actions = 0 AND seconds < 10))::numeric / nullif(count(*), 0) AS value
+    FROM visits
+    WHERE pageviews > 0
+    GROUP BY week
+    ORDER BY week;
+  bigquery: |-
+    -- Bounce rate per week: sessions with one page view, no click or key action and under 10 seconds ÷ sessions with a page view.
+    WITH visits AS (
+      SELECT
+        session_id,
+        DATE_TRUNC(DATE(MIN(occurred_at)), ISOWEEK) AS week,
+        COUNTIF(event_name = '$pageview') AS pageviews,
+        COUNTIF(event_name IN ('$autocapture', 'product_added', 'product_searched', 'checkout_started', 'signed_up', 'order_completed')) AS actions,
+        TIMESTAMP_DIFF(MAX(occurred_at), MIN(occurred_at), SECOND) AS seconds
+      FROM events
+      WHERE session_id IS NOT NULL
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      GROUP BY session_id
+    )
+    SELECT
+      week,
+      COUNTIF(pageviews = 1 AND actions = 0 AND seconds < 10) AS numerator,
+      COUNT(*) AS denominator,
+      SAFE_DIVIDE(COUNTIF(pageviews = 1 AND actions = 0 AND seconds < 10), COUNT(*)) AS value
+    FROM visits
+    WHERE pageviews > 0
+    GROUP BY week
+    ORDER BY week;
+  snowflake: |-
+    -- Bounce rate per week: sessions with one page view, no click or key action and under 10 seconds ÷ sessions with a page view.
+    -- Assumes WEEK_START = 1 (Monday).
+    WITH visits AS (
+      SELECT
+        session_id,
+        DATE_TRUNC('week', MIN(occurred_at))::date AS week,
+        COUNT_IF(event_name = '$pageview') AS pageviews,
+        COUNT_IF(event_name IN ('$autocapture', 'product_added', 'product_searched', 'checkout_started', 'signed_up', 'order_completed')) AS actions,
+        DATEDIFF('second', MIN(occurred_at), MAX(occurred_at)) AS seconds
+      FROM events
+      WHERE session_id IS NOT NULL
+        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+      GROUP BY session_id
+    )
+    SELECT
+      week,
+      COUNT_IF(pageviews = 1 AND actions = 0 AND seconds < 10) AS numerator,
+      COUNT(*) AS denominator,
+      DIV0NULL(COUNT_IF(pageviews = 1 AND actions = 0 AND seconds < 10), COUNT(*)) AS value
+    FROM visits
+    WHERE pageviews > 0
+    GROUP BY week
+    ORDER BY week;
+
+noise:
+  type: binomial
+  min_denominator: 200
+  volume_unit: sessions a week
+  typical: 0.4
+  reference_volumes: [1000, 5000, 25000, 100000]
+
+example:
+  business: store
+  level: 0.38
+  volume: 520000
+  trend: -0.02
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Is a page view or click event now firing twice, so single-page visits no longer look like bounces?
+      yes: Bounce rate falls by many points overnight, page views per session jump, and orders don't move.
+    spiked:
+      check: Did a release stop route changes, clicks or page-leave events being recorded?
+      yes: Bounce rises on the day of a release while orders hold and page views per session fall.
+  - id: bots
+    label: Bots and junk traffic
+    breakdown: $geoip_country_code
+    dropped:
+      check: Did a bot or spam source that always bounced stop?
+      yes: One country, browser or referrer that bounced nearly every time has disappeared.
+    spiked:
+      check: Is a crawler, uptime checker or spam referrer adding one-page visits?
+      yes: The extra sessions come from one country, browser or data-centre network, last zero seconds and never order.
+  - id: site-speed
+    label: Site speed and errors
+    feed: cloudflare
+    dropped:
+      check: Did a slow or broken period last week end?
+      yes: Bounce returns to its usual level once load times recover.
+    spiked:
+      check: Did pages load slowly, error or fail to render, from an outage or a heavy release?
+      yes: Bounce rises in the hours of an incident, or on one device or browser after a release.
+  - id: traffic-mix
+    label: Who arrived
+    metric: paid-sessions
+    breakdown: utm_source
+    dropped:
+      check: Did low-intent traffic, such as broad prospecting or a viral link, shrink?
+      yes: The source that bounced most sends fewer sessions while each source's own bounce rate holds.
+    spiked:
+      check: Did a campaign, social post or press link bring visitors who leave at once?
+      yes: One source grows and bounces far above the rest; every other source holds its rate.
+  - id: landing-pages
+    label: Landing pages
+    breakdown: $pathname
+    dropped:
+      check: Did a landing page get faster, clearer, or start matching its ad better?
+      yes: Bounce falls on that page from the day it changed.
+    spiked:
+      check: Is a sold-out product, a 404 or a changed page catching traffic from an ad or search result?
+      yes: One landing path accounts for most of the extra bounces.
+  - id: device-split
+    label: Mobile vs desktop
+    breakdown: $device_type
+    dropped:
+      check: Is the fall on one device only, after a layout change?
+      yes: One device improves while the others hold.
+    spiked:
+      check: Is the rise on one device only?
+      yes: Mobile bounce jumps after a release, which points at a layout or pop-up problem.
+
+diagnose_order: [tracking, bots, site-speed, traffic-mix, landing-pages, device-split]
+
+related: [sessions, pages-per-session, product-view-rate, conversion-rate, paid-sessions]
+
+prose:
+  why_it_matters: >-
+    Bounce rate is the cheapest early warning a store has: it moves within hours of a broken
+    page, a slow release or a campaign sending the wrong people, long before orders are counted.
+    On 520,000 sessions a week, two extra points of bounce is about 10,000 visits that never see
+    a product, which at a 2.5% conversion rate is about 250 orders.
+  pitfalls:
+    - Bounce rates from different tools don't compare. Universal Analytics counted any one-page visit, GA4 reports one minus engagement rate, and this spec follows PostHog's rule of one page, no click and under 10 seconds.
+    - A bounce rate under 15% almost always means a page view or event fires twice, not a great site. Check the tags before celebrating.
+    - Without a page-leave event or click tracking, the 10-second rule can't fire and every one-page visit counts as a bounce, so the rate reads 10 to 20 points high.
+    - A single-page blog post or a store-locator page that answers the question bounces by design. Read bounce by landing page, not as one number.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

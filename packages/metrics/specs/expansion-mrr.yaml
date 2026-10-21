@@ -1,0 +1,119 @@
+id: expansion-mrr
+name: Expansion MRR
+aliases:
+  - Expansion revenue
+  - Upsell MRR
+  - Upgrade MRR
+  - Expansion monthly recurring revenue
+family: subscription
+kind: currency
+polarity: up-is-good
+
+definition:
+  one_line: The monthly recurring revenue added this week by paying customers who upgraded, added seats or usage, or bought add-ons.
+  formula: Sum of monthly amount increases on subscriptions that were already paying
+
+events:
+  - name: subscription_expanded
+    description: A paying subscription's monthly amount went up from a plan upgrade, more seats, more usage or an add-on.
+    also_called: [Subscription Upgraded, plan_upgraded, customer.subscription.updated]
+    properties:
+      - name: subscription_id
+        description: The billing system's subscription id.
+      - name: mrr_delta
+        description: How much the monthly amount rose, as a positive number, after discounts and before tax.
+      - name: plan
+        description: The plan after the change.
+
+numerator:
+  label: Expansion MRR
+  aggregate: sum
+  event: subscription_expanded
+  property: mrr_delta
+
+noise:
+  type: compound
+  cv: 1.2
+  min_denominator: 10
+  volume_unit: expansions a week
+  typical: 900
+  reference_volumes: [10, 40, 150, 600]
+
+example:
+  business: saas
+  level: 890
+  volume: 24
+  trend: 0.35
+
+drivers:
+  - id: billing-changes
+    label: Billing changes
+    dropped:
+      check: Are upgrades now recorded as a cancellation plus a new subscription, after a billing or checkout change?
+      yes: Expansion falls while new and churned MRR both rise by similar amounts on the same customers.
+    spiked:
+      check: Did a price migration, coupon expiry or currency change raise amounts without customers choosing to buy more?
+      yes: Many subscriptions expand on the same day by the same percentage, with no plan change.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Is this a holiday week, when customers' own teams and budgets pause?
+      yes: The same week last year shows the same dip once aligned on the holiday.
+    spiked:
+      check: Is it the start of a quarter or fiscal year, when customers add seats with new budgets?
+      yes: Seat additions cluster in the same weeks of earlier years.
+  - id: large-accounts
+    label: Large accounts
+    dropped:
+      check: Did an upgrade from a large account that usually lands now slip to another week?
+      yes: The usual large expansions are missing and the rest of the week looks ordinary.
+    spiked:
+      check: Is one account most of the week's expansion?
+      yes: A single customer explains most of the total. Treat it as a deal, not a trend.
+  - id: plan-mix
+    label: Upgrade paths by plan
+    breakdown: plan
+    dropped:
+      check: Did upgrades from one plan stop, for example after a packaging or pricing page change?
+      yes: One plan's upgrades vanish while the others hold.
+    spiked:
+      check: Is one plan upgrading far more than usual?
+      yes: One plan explains most of the rise, starting the week its limits or price changed.
+  - id: usage-limits
+    label: Seats and usage limits
+    dropped:
+      check: Are customers adding fewer seats or less usage, for example from hiring freezes on their side?
+      yes: Seat and usage additions per account fall across plans, not in one segment.
+    spiked:
+      check: Did a usage limit or a seat-based feature push accounts over a threshold?
+      yes: Expansions cluster at one plan's limit, starting the week the limit or feature shipped.
+  - id: feature-adoption
+    label: Adoption of paid features
+    metric: feature-adoption-rate
+    dropped:
+      check: Are fewer people using the feature that usually leads to an upgrade?
+      yes: Adoption of that feature fell a few weeks before expansion did.
+    spiked:
+      check: Did more people start using a feature that sits behind an upgrade?
+      yes: Adoption of the gated feature rose in the weeks before upgrades did.
+
+diagnose_order: [billing-changes, calendar, large-accounts, plan-mix, usage-limits, feature-adoption]
+
+related: [mrr, net-revenue-retention, net-new-mrr, arpa, feature-adoption-rate]
+
+prose:
+  why_it_matters: >-
+    Expansion is revenue you don't have to acquire, and it is what lets net revenue retention
+    pass 100%. A company whose paying customers add 1.6% to MRR each month can lose 1.6% to churn
+    and still hold its base without a single new customer. It arrives in lumps, from seat
+    additions and plan upgrades, so one week says little; four weeks of it against churn say a lot.
+  pitfalls:
+    - A customer who cancels and immediately buys a bigger plan shows up as churn plus new business, which hides expansion and inflates both. Record plan changes on the same subscription.
+    - Price increases and coupon expiries raise MRR without anyone choosing to buy more. Tag them, because they won't repeat.
+    - Usage-based charges that swing month to month add expansion one month and contraction the next. Net them per account per month, or both flows look larger than they are.
+    - A churned customer who comes back is reactivation, not expansion. Keep it with new MRR or on its own line.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

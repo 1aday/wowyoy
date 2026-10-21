@@ -92,7 +92,7 @@ export function exampleSeries(
   const r = rng(hash(spec.id))
   const endMonday = end ?? latestClosedWeek().monday
   const endT = Date.parse(`${endMonday}T00:00:00Z`)
-  const { business, level, volume, trend } = spec.example
+  const { business, level, volume, trend, season: seasonality } = spec.example
   const { type, cv = 1 } = spec.noise
   const volDrift = drift(r, weeks, 0.03, 0.02, 0.05)
   const valDrift = drift(r, weeks, type === "process" ? 0.01 : 0.015, 0.025, 0.06)
@@ -102,7 +102,8 @@ export function exampleSeries(
     const monday = new Date(endT - (weeks - 1 - i) * 7 * DAY).toISOString().slice(0, 10)
     const years = (i - (weeks - 1)) / 52
     const growth = Math.exp(trend * years)
-    const [sv, sr] = season(business, monday)
+    const [sv, lift] = season(business, monday)
+    const sr = lift ** seasonality
     const vol = Math.max(1, volume * growth * sv * (volDrift[i] ?? 1))
     const d = valDrift[i] ?? 1
     let value: number
@@ -122,8 +123,11 @@ export function exampleSeries(
         break
       }
       case "compound": {
+        // Lognormal with the compound sum's relative spread, so small weeks stay positive and skew right.
         const total = level * growth * sv * d * sr
-        value = Math.max(0, total * (1 + Math.sqrt((1 + cv * cv) / vol) * r.normal()))
+        const rel = Math.sqrt((1 + cv * cv) / vol)
+        const s2 = Math.log(1 + rel * rel)
+        value = total * Math.exp(Math.sqrt(s2) * r.normal() - s2 / 2)
         break
       }
       case "mean": {
