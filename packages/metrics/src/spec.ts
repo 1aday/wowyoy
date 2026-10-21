@@ -64,7 +64,7 @@ const propertyName = z.string().regex(/^\$?[A-Za-z_][A-Za-z0-9_.]*$/, "a plain p
 
 const filter = z.object({
   property: propertyName,
-  op: z.enum(["eq", "neq", "in", "not_in", "is_set", "is_not_set"]),
+  op: z.enum(["eq", "neq", "in", "not_in", "is_set", "is_not_set", "gt", "gte", "lt", "lte"]),
   value: z.union([z.string(), z.number(), z.boolean(), z.array(z.union([z.string(), z.number()]))]).optional(),
 })
 export type SpecFilter = z.infer<typeof filter>

@@ -137,6 +137,13 @@ function filterExpr(d: Dia, f: SpecFilter) {
       return `${p} IS NOT NULL`
     case "is_not_set":
       return `${p} IS NULL`
+    case "gt":
+    case "gte":
+    case "lt":
+    case "lte": {
+      const op = { gt: ">", gte: ">=", lt: "<", lte: "<=" }[f.op]
+      return `${d.num(f.property)} ${op} ${Number(vals[0] ?? 0)}`
+    }
   }
 }
 
