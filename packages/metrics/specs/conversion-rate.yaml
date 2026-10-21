@@ -118,8 +118,8 @@ related: [sessions, add-to-cart-rate, checkout-conversion, mobile-conversion-rat
 prose:
   why_it_matters: >-
     Conversion rate turns traffic into orders, so almost every change to the store shows up in
-    it eventually. At 600,000 sessions a week, a tenth of a point is 600 orders, about $60,000 a
-    week at a $100 order. It moves with who arrives as much as with the store, so read it
+    it eventually. At 600,000 sessions a week, a tenth of a point is 600 orders, about $58,000 a
+    week at Northwind's $97 order. It moves with who arrives as much as with the store, so read it
     beside the traffic mix before crediting or blaming the site.
   pitfalls:
     - Orders sent from the server often carry no session id and fall out of the numerator. Pass the browser's session id onto the order event or conversion reads low.

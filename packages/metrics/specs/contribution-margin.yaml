@@ -28,8 +28,8 @@ events:
       - name: amount
         description: The refunded amount, excluding tax and shipping.
   - name: ad_spend
-    description: Spend synced from each ad platform, one row per channel per day.
-    also_called: [ad insights, campaign cost data, cost import]
+    description: One row per channel per day, synced from each ad platform's reporting API.
+    also_called: [Ad Spend, ad_performance, campaign_daily_stats]
     properties:
       - name: channel
         description: The platform or channel, such as meta, google or tiktok.
@@ -178,7 +178,7 @@ noise:
 
 example:
   business: store
-  level: 291000
+  level: 363000
   volume: 13300
   trend: 0.15
   season: 1
@@ -249,12 +249,12 @@ prose:
     Revenue can grow while the business earns less; contribution margin is the check. It takes
     away what the goods cost and what the ads that sold them cost, leaving the money that pays
     for salaries, rent and profit. At Northwind about $1.29M of net revenue leaves roughly
-    $345,000 after $560,000 of goods and $380,000 of ads, so a 10% rise in ad spend with flat
-    revenue cuts it by 11%.
+    $360,000 after about $620,000 of goods and $300,000 of ads, so a 10% rise in ad spend with
+    flat revenue cuts it by about 8%.
   pitfalls:
-    - Shipping labels, packaging, fulfilment and payment fees are variable costs too, often 10–15% of revenue. Leaving them out overstates contribution margin; add them as a per-order estimate if you don't record them.
+    - Shipping labels, packaging, fulfilment and payment fees are variable costs too. Leaving them out overstates contribution margin; add them as a per-order estimate if you don't record them.
     - Ad spend is booked on the day it's spent, but the orders it drives can land days later, so a launch week reads low and the next week high. Use two-week sums when spend moves a lot.
-    - When one platform's spend sync fails, contribution margin jumps by that platform's spend. Check every channel reported spend before celebrating.
+    - When one platform's spend sync fails, contribution margin jumps by that platform's spend. Check that every channel reported spend before celebrating.
     - Some teams stop before marketing and call that contribution margin. This spec takes ad spend out because that is the number that says whether growth pays.
 
 reviewed_by: null

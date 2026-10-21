@@ -160,7 +160,7 @@ noise:
 example:
   business: saas
   level: 11.5
-  volume: 24
+  volume: 29
   trend: 0.06
 
 drivers:
@@ -218,13 +218,13 @@ related: [blended-cac, ltv-to-cac, new-mrr, arpa, gross-margin, net-revenue-rete
 prose:
   why_it_matters: >-
     Payback is how long the business waits to get its acquisition money back, which sets how
-    fast it can grow without raising more. Under 12 months is strong for SMB SaaS and 18 to 24
-    months is common in mid-market and enterprise. At 11.5 months, a dollar spent this week
-    comes back in just under a year and can then be spent again.
+    fast it can grow without raising more. It joins what a customer costs and what they pay each
+    month into one number a founder can plan on. At 11.5 months, a dollar spent this week comes
+    back in just under a year and can then be spent again.
   pitfalls:
     - Payback without gross margin overstates how fast money comes back. On 80% margin, revenue-based payback reads 20% too short.
     - Weekly payback swings with deal timing, because spend leads new customers by weeks or months. Plan on the trailing quarter and read the weekly number for direction only.
-    - It assumes customers stay long enough to pay it back. With 3% monthly logo churn, a fifth of a cohort is gone before month 8; read it with net revenue retention.
+    - It assumes customers stay long enough to pay it back. At Copperline's logo churn of about 0.56% a week, about a quarter of a cohort has left by month 11.5; read it with net revenue retention.
     - Media spend alone gives a flattering number. Sales salaries, agency fees and tools belong in the spend for a fully loaded payback.
 
 reviewed_by: null

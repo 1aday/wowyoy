@@ -112,7 +112,7 @@ prose:
   why_it_matters: >-
     Revenue is orders × AOV, so AOV separates "fewer people bought" from "people bought less".
     It moves with prices, discounts, basket size and who is buying, not with traffic. At
-    Northwind, $1 of AOV across 13,300 orders is $13,300 a week, the same revenue as about 135
+    Northwind, $1 of AOV across 13,300 orders is $13,300 a week, the same revenue as about 137
     more orders.
   pitfalls:
     - Averages follow large orders. A few wholesale or bulk orders can lift a small store's AOV 10% in a week; check the median order beside it.

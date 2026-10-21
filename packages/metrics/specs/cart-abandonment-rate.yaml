@@ -117,15 +117,15 @@ related: [checkout-start-rate, checkout-conversion, add-to-cart-rate, conversion
 prose:
   why_it_matters: >-
     About 70 of every 100 carts are abandoned on the average store, by Baymard Institute's
-    average of dozens of studies, and most of them were never going to buy. The part a store
+    average of dozens of studies, and many of those shoppers were only browsing. The part a store
     can win back is the rest: extra costs shown late, forced accounts, slow delivery and
     checkouts that ask too much. At Northwind, with 40,000 carts a week, one point of
     abandonment is about 400 orders.
   pitfalls:
-    - Cart abandonment is not checkout abandonment. One minus checkout conversion counts only shoppers who started checkout and reads far lower; comparing either with the other's benchmark is the most common mistake with this number.
+    - Cart abandonment is not checkout abandonment. One minus checkout conversion counts only shoppers who started checkout and reads far lower; comparing either with the other's benchmark is a common mistake.
     - This spec compares carts and orders in aggregate, as Baymard does, so a shopper who adds on Monday and buys on Thursday in a new session counts once on each side and nets out.
     - Orders placed without an add-to-cart, such as buy-now buttons, reorder links and subscription renewals, pull the rate down. Send product_added for them or exclude them.
-    - Mobile carts are abandoned more often than desktop carts, so a rise in mobile share lifts the rate with no change in the store. Split by device before blaming checkout.
+    - Mobile carts are usually abandoned more often than desktop carts, so a rise in mobile share lifts the rate with no change in the store. Split by device before blaming checkout.
     - The week before a big sale people fill carts and wait. Compare that week with the same week last year, not the week before.
 
 reviewed_by: null
