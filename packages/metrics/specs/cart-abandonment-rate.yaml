@@ -1,0 +1,132 @@
+id: cart-abandonment-rate
+name: Cart abandonment rate
+aliases:
+  - Cart abandonment
+  - Shopping cart abandonment rate
+  - Abandoned cart rate
+family: conversion
+kind: rate
+polarity: down-is-good
+
+definition:
+  one_line: The share of shopping carts that never become a paid order, by Baymard's definition of one minus orders over carts.
+  formula: 1 − sessions with a paid order ÷ sessions that added to cart, both counted in the same week
+
+events:
+  - name: product_added
+    description: An item added to the cart from any button, confirmed by the cart, not the click.
+    also_called: [add_to_cart, Product Added, product_added_to_cart]
+    properties:
+      - name: product_id
+        description: The product added.
+      - name: quantity
+        description: Units added in this action.
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+
+numerator:
+  label: Sessions that added to cart
+  aggregate: unique_sessions
+  event: product_added
+subtract:
+  label: Sessions with a paid order
+  aggregate: unique_sessions
+  event: order_completed
+denominator:
+  label: Sessions that added to cart
+  aggregate: unique_sessions
+  event: product_added
+
+noise:
+  type: binomial
+  min_denominator: 100
+  volume_unit: carts a week
+  typical: 0.7
+  reference_volumes: [500, 2000, 10000, 40000]
+
+example:
+  business: store
+  level: 0.67
+  volume: 40000
+  trend: -0.03
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Is a duplicate order event, or a missing add-to-cart event on one platform, shrinking the gap?
+      yes: Orders recorded exceed orders in the payment processor, or adds fall on one device while orders hold.
+    spiked:
+      check: Did an add-to-cart event start firing twice, or did order events stop being recorded?
+      yes: Carts rise without checkout starts following, or recorded orders fall below the processor's count.
+  - id: calendar
+    label: Sale calendar
+    feed: shopping
+    dropped:
+      check: Is this a sale week, when carts that were parked the week before finally convert?
+      yes: Orders rise faster than carts, and the same week last year shows the same dip once aligned on the event.
+    spiked:
+      check: Is it the week before a sale, when shoppers fill carts and wait for the discount?
+      yes: Carts rise while orders hold, and the same week last year shows the same rise.
+  - id: cart-to-checkout
+    label: Cart to checkout
+    metric: checkout-start-rate
+    dropped:
+      check: Did more carts move on to checkout, after a cart page or shipping message change?
+      yes: Checkout start rate rises by about as much as abandonment falls.
+    spiked:
+      check: Did fewer carts reach checkout, from a cart page change, a surprise cost or a broken button?
+      yes: Checkout start rate falls while checkout completion holds.
+  - id: checkout-completion
+    label: Checkout completion
+    metric: checkout-conversion
+    feed: stripe
+    dropped:
+      check: Did more started checkouts finish, after a checkout fix or a payment method launch?
+      yes: Checkout conversion rises while checkout starts hold.
+    spiked:
+      check: Did more checkouts fail at shipping, account creation or payment?
+      yes: Checkout conversion falls while checkout starts hold; one step or one payment method explains most of it.
+  - id: extra-costs
+    label: Shipping, tax and fees
+    dropped:
+      check: Did a free-shipping offer, a lower threshold or a clearer delivery date go live?
+      yes: Fewer exits at the shipping step from the day it launched.
+    spiked:
+      check: Did shipping prices, thresholds, duties or fees shown late in checkout change?
+      yes: Exits concentrate on the shipping step, starting the day the change shipped.
+  - id: device-mix
+    label: Mobile vs desktop
+    breakdown: $device_type
+    dropped:
+      check: Did desktop take a larger share of carts, or did mobile abandonment fall?
+      yes: Each device's rate holds and the mix moved, or mobile falls after a release.
+    spiked:
+      check: Did mobile take a larger share of carts, or did mobile abandonment rise on its own?
+      yes: Each device's rate holds and only the mix moved, or mobile rises while desktop holds.
+
+diagnose_order: [tracking, calendar, cart-to-checkout, checkout-completion, extra-costs, device-mix]
+
+related: [checkout-start-rate, checkout-conversion, add-to-cart-rate, conversion-rate, payment-success-rate]
+
+prose:
+  why_it_matters: >-
+    About 70 of every 100 carts are abandoned on the average store, by Baymard Institute's
+    average of dozens of studies, and most of them were never going to buy. The part a store
+    can win back is the rest: extra costs shown late, forced accounts, slow delivery and
+    checkouts that ask too much. At Northwind, with 40,000 carts a week, one point of
+    abandonment is about 400 orders.
+  pitfalls:
+    - Cart abandonment is not checkout abandonment. One minus checkout conversion counts only shoppers who started checkout and reads far lower; comparing either with the other's benchmark is the most common mistake with this number.
+    - This spec compares carts and orders in aggregate, as Baymard does, so a shopper who adds on Monday and buys on Thursday in a new session counts once on each side and nets out.
+    - Orders placed without an add-to-cart, such as buy-now buttons, reorder links and subscription renewals, pull the rate down. Send product_added for them or exclude them.
+    - Mobile carts are abandoned more often than desktop carts, so a rise in mobile share lifts the rate with no change in the store. Split by device before blaming checkout.
+    - The week before a big sale people fill carts and wait. Compare that week with the same week last year, not the week before.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

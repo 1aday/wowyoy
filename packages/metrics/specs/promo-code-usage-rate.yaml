@@ -1,0 +1,130 @@
+id: promo-code-usage-rate
+name: Promo code usage rate
+aliases:
+  - Coupon usage rate
+  - Discount code usage rate
+  - Coupon redemption rate
+  - Promo code redemption rate
+family: conversion
+kind: rate
+polarity: down-is-good
+
+definition:
+  one_line: The share of paid orders placed with a discount code, the part of demand that only bought at a lower price.
+  formula: Paid orders with a discount code ÷ paid orders
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: coupon
+        description: The code redeemed on the order; absent when no code was used.
+      - name: discount
+        description: The total discount on the order, from codes and automatic offers.
+  - name: coupon_applied
+    description: A code entered at cart or checkout, valid or not.
+    also_called: [Coupon Entered, Coupon Applied, Coupon Denied]
+    properties:
+      - name: coupon
+        description: The code entered.
+      - name: valid
+        description: Whether the code was accepted.
+
+numerator:
+  label: Orders with a code
+  aggregate: count
+  event: order_completed
+  where:
+    - property: coupon
+      op: is_set
+denominator:
+  label: Paid orders
+  aggregate: count
+  event: order_completed
+
+noise:
+  type: binomial
+  min_denominator: 100
+  volume_unit: orders a week
+  typical: 0.25
+
+example:
+  business: store
+  level: 0.24
+  volume: 13300
+  trend: 0.03
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Did a checkout migration or a new discount app stop sending the code on the order event?
+      yes: Discounts on orders hold while the coupon field goes blank from one day.
+    spiked:
+      check: Is the order event now sending an empty string or an automatic offer's name as the coupon?
+      yes: Orders with a coupon but no discount appear, or one code name shows up on most orders.
+  - id: campaigns
+    label: Sales and campaign codes
+    feed: shopping
+    dropped:
+      check: Did a sale end or a campaign code expire this week?
+      yes: One or two campaign codes that carried last week's orders fall away.
+    spiked:
+      check: Is a sale running on a code, or did an email or SMS send one this week?
+      yes: One or two campaign codes explain most of the rise, starting on the send or launch day.
+  - id: leaked-codes
+    label: Leaked codes
+    breakdown: coupon
+    dropped:
+      check: Did you disable a code that had leaked to coupon sites or browser extensions?
+      yes: That code's uses fall to zero and invalid attempts with it appear in coupon_applied.
+    spiked:
+      check: Did a code leak to a coupon site, a browser extension or a deal forum?
+      yes: One code's uses climb across channels it was never sent to, often on first orders.
+  - id: invalid-codes
+    label: Codes that fail
+    dropped:
+      check: Did codes start failing, from an expiry, a new minimum spend or a discount app error?
+      yes: coupon_applied with valid false rises, and checkout conversion may fall with it.
+    spiked:
+      check: Did the code field move up to the cart or become more visible, sending shoppers to look for codes?
+      yes: Uses of codes nobody sent this week rise from the day the field moved.
+  - id: partner-codes
+    label: Influencer and affiliate codes
+    breakdown: utm_source
+    dropped:
+      check: Did an influencer, affiliate or podcast campaign with its own code end?
+      yes: The partner's code and its traffic source fall away together.
+    spiked:
+      check: Did an influencer, affiliate or podcast campaign with its own code launch?
+      yes: The partner's code accounts for most of the rise, with orders from its source.
+  - id: new-customers
+    label: First orders and welcome codes
+    metric: new-customers
+    dropped:
+      check: Did fewer first-time customers arrive with a welcome code?
+      yes: Welcome code uses fall with new customers while repeat customers' code use holds.
+    spiked:
+      check: Did more first-time customers arrive with a welcome code, from a pop-up change or an ad push?
+      yes: Welcome code uses rise with new customers while repeat customers' code use holds.
+
+diagnose_order: [tracking, campaigns, leaked-codes, invalid-codes, partner-codes, new-customers]
+
+related: [discount-rate, aov, checkout-conversion, new-customers, gross-margin]
+
+prose:
+  why_it_matters: >-
+    Every coded order is margin given away, and code usage creeps: a welcome code, an influencer
+    code and a leaked code each add a few points that nobody decided on. At Northwind, 24% of
+    13,300 weekly orders use a code; five more points is about 650 more discounted orders a
+    week.
+  pitfalls:
+    - Automatic discounts and free-shipping rules leave the coupon empty, so a store that moves from codes to automatic offers sees code usage fall while it discounts more. Read discount rate beside it.
+    - Send no coupon property when no code was used. An empty string counts as a code in most query engines, including this spec's test.
+    - Welcome codes tie code usage to the new-customer mix, so a week with more first orders shows more codes without any change in promotions.
+    - Browser coupon extensions try every code they know at checkout, so a code shared once can spread to a large share of orders within days. Watch the top code's share, not only the total.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

@@ -1,0 +1,114 @@
+id: gross-margin
+name: Gross margin
+aliases:
+  - Gross margin percentage
+  - Gross profit margin
+  - Product margin
+family: revenue
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of order revenue left after the cost of the goods sold, for orders paid this week.
+  formula: (Order revenue − cost of goods) ÷ order revenue, after discounts, before tax, shipping and refunds
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: total
+        description: Order value after discounts, before tax and shipping.
+      - name: cost_of_goods
+        description: The landed cost of the order's items, purchase price plus inbound freight and duties.
+
+numerator:
+  label: Order revenue
+  aggregate: sum
+  event: order_completed
+  property: total
+subtract:
+  label: Cost of goods
+  aggregate: sum
+  event: order_completed
+  property: cost_of_goods
+denominator:
+  label: Order revenue
+  aggregate: sum
+  event: order_completed
+  property: total
+
+noise:
+  type: process
+  min_denominator: 50
+  volume_unit: orders a week
+  typical: 0.55
+
+example:
+  business: store
+  level: 0.532
+  volume: 13300
+  trend: -0.02
+
+drivers:
+  - id: cost-data
+    label: Cost data
+    dropped:
+      check: Did cost_of_goods change basis, for example adding freight or loading a new supplier price list?
+      yes: Cost per unit jumps for many products on one date, with no new purchase order behind it.
+    spiked:
+      check: Are products selling without a recorded cost, counting as free?
+      yes: The share of orders with no cost_of_goods rises, usually on new products.
+  - id: discounts
+    label: Discounts and sales
+    metric: discount-rate
+    feed: shopping
+    dropped:
+      check: Did discounts rise, from a sale, a code or a stacked offer?
+      yes: Discount rate rises by about as much as margin falls.
+    spiked:
+      check: Did a sale end, so orders carry less discount?
+      yes: Discount rate falls by about as much as margin rises.
+  - id: product-mix
+    label: Product mix
+    dropped:
+      check: Did low-margin products, such as bundles, clearance or a new hero product, take a larger share of sales?
+      yes: Each product's own margin holds and only the mix moved.
+    spiked:
+      check: Did high-margin products take a larger share of sales?
+      yes: Each product's own margin holds and only the mix moved.
+  - id: landed-cost
+    label: Supplier, freight and duties
+    dropped:
+      check: Did supplier prices, freight or tariffs raise unit costs?
+      yes: Cost per unit rises on the same products, often when a new purchase order is received.
+    spiked:
+      check: Did a cheaper batch of stock start selling? Check it's not a cost data error first.
+      yes: Cost per unit falls on the products from one purchase order.
+  - id: pricing
+    label: Prices
+    dropped:
+      check: Did list prices fall, or did a price test lower them for some shoppers?
+      yes: Revenue per unit falls while cost per unit holds.
+    spiked:
+      check: Did a price rise take effect?
+      yes: Revenue per unit rises from the price change date while cost per unit holds.
+
+diagnose_order: [cost-data, discounts, product-mix, landed-cost, pricing]
+
+related: [contribution-margin, discount-rate, net-revenue, aov, refund-rate]
+
+prose:
+  why_it_matters: >-
+    Gross margin decides how much of each dollar of revenue is left for marketing, shipping and
+    everything else. A store at 58% margin that slips to 55% has lost about 5% of what it has to
+    spend with revenue unchanged; at Northwind that is about $40,000 a week.
+  pitfalls:
+    - Cost of goods should be the landed cost per unit, the purchase price plus inbound freight and duties. Supplier price alone overstates margin by several points for imported goods.
+    - Products without a recorded cost count as free and pull margin up. New products are the usual culprit.
+    - This spec matches each order's revenue to its own cost and leaves refunds out, because a refund event carries no cost. Read refund rate beside it.
+    - Shipping, packaging and payment fees aren't cost of goods. Including them mixes gross margin with contribution margin and breaks comparisons with industry figures.
+
+reviewed_by: null
+reviewed_at: null
+version: 1
