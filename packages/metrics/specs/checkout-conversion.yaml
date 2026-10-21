@@ -47,8 +47,9 @@ noise:
 example:
   business: store
   level: 0.63
-  volume: 9400
+  volume: 20900
   trend: 0.02
+  season: 0.5
 
 drivers:
   - id: payment-failures
@@ -90,7 +91,7 @@ drivers:
   - id: traffic-mix
     label: Who reached checkout
     metric: checkout-start-rate
-    breakdown: $utm_source
+    breakdown: utm_source
     dropped:
       check: Did more low-intent visitors reach checkout, for example from a new campaign?
       yes: Checkout starts rise from one source whose completion is far below the rest.

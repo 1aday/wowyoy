@@ -126,6 +126,7 @@ example:
   level: 291000
   volume: 13300
   trend: 0.15
+  season: 1
 
 drivers:
   - id: tracking
