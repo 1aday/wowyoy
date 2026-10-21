@@ -186,20 +186,27 @@ export function judge(values: readonly number[], spec: NoiseSpec, volumes?: read
   }
 }
 
-export type TwoWeekKind = "rate" | "count" | "amount"
+export type TwoWeekKind = "rate" | "count" | "amount" | "average"
 
 export interface TwoWeekInput {
   kind: TwoWeekKind
-  /** Rates: as fractions (0.041). Counts and amounts: the totals. */
+  /** Rates: as fractions (0.041). Counts and amounts: the totals. Averages: the mean per event. */
   before: number
   after: number
-  /** Rates: trials per week (sessions, checkouts). Amounts: events per week (orders). Counts: unused. */
+  /** Rates: trials per week (sessions, checkouts). Amounts and averages: events per week (orders). Counts: unused. */
   volume?: number
-  /** Amounts only: coefficient of variation of one event's value. Defaults to 1. */
+  /** Amounts and averages: coefficient of variation of one event's value. Defaults to 1. */
   cv?: number
 }
 
-const twoWeekNoise: Record<TwoWeekKind, NoiseType> = { rate: "binomial", count: "poisson", amount: "compound" }
+export const twoWeekKinds: readonly TwoWeekKind[] = ["rate", "count", "amount", "average"]
+
+const twoWeekNoise: Record<TwoWeekKind, NoiseType> = { rate: "binomial", count: "poisson", amount: "compound", average: "mean" }
+
+/** The two-number kind that tests a metric of this noise type. Process metrics have none: they need history. */
+export function twoWeekKindFor(type: NoiseType): TwoWeekKind | null {
+  return twoWeekKinds.find((k) => twoWeekNoise[k] === type) ?? null
+}
 
 /**
  * The two-number Fluke Test: last week, this week and the volume, no history.
