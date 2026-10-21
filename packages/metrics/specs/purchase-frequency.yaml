@@ -1,0 +1,239 @@
+id: purchase-frequency
+name: Purchase frequency
+aliases:
+  - Order frequency
+  - Orders per customer
+  - Average purchase frequency
+family: customers
+kind: ratio
+polarity: up-is-good
+
+definition:
+  one_line: How many orders the average customer placed in the last 52 weeks, counting customers with at least one order.
+  formula: Orders in the trailing 52 weeks ÷ distinct customers who ordered in them, at each week's end
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: customer_id
+        description: The store's customer id, shared by guest and logged-in orders with the same email.
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+
+numerator:
+  label: Orders in 52 weeks
+  aggregate: count
+  event: order_completed
+denominator:
+  label: Customers with an order in 52 weeks
+  aggregate: unique_users
+  event: order_completed
+
+queries:
+  hogql: |-
+    -- Purchase frequency: orders in the 52 weeks ending each week ÷ customers who ordered in them, for each of the last 26 complete weeks.
+    SELECT
+      toString(week_start) AS week,
+      sum(orders) AS numerator,
+      count() AS denominator,
+      if(count() > 0, sum(orders) / count(), NULL) AS value
+    FROM (
+      SELECT w.week_start AS week_start, o.customer_id AS customer_id, uniqExact(o.order_id) AS orders
+      FROM (
+        SELECT arrayJoin(arrayMap(i -> toMonday(now()) - toIntervalWeek(i), range(1, 27))) AS week_start
+      ) AS w
+      CROSS JOIN (
+        SELECT
+          coalesce(properties.customer_id, toString(person_id)) AS customer_id,
+          properties.order_id AS order_id,
+          timestamp AS ts
+        FROM events
+        WHERE event = 'order_completed'
+          AND timestamp >= toMonday(now()) - toIntervalWeek(77)
+      ) AS o
+      WHERE o.ts >= w.week_start - toIntervalWeek(51)
+        AND o.ts < w.week_start + toIntervalWeek(1)
+      GROUP BY week_start, customer_id
+    )
+    GROUP BY week_start
+    ORDER BY week_start
+  postgres: |-
+    -- Purchase frequency: orders in the 52 weeks ending each week ÷ customers who ordered in them, for each of the last 26 complete weeks.
+    WITH weeks AS (
+      SELECT generate_series(
+        date_trunc('week', now()) - interval '26 weeks',
+        date_trunc('week', now()) - interval '1 week',
+        interval '1 week'
+      ) AS week
+    ),
+    paid_orders AS (
+      SELECT
+        coalesce(properties->>'customer_id', user_id) AS customer_id,
+        properties->>'order_id' AS order_id,
+        occurred_at
+      FROM events
+      WHERE event_name = 'order_completed'
+        AND occurred_at >= date_trunc('week', now()) - interval '77 weeks'
+    ),
+    per_customer AS (
+      SELECT w.week, o.customer_id, count(DISTINCT o.order_id) AS orders
+      FROM weeks w
+      JOIN paid_orders o
+        ON o.occurred_at >= w.week - interval '51 weeks'
+       AND o.occurred_at < w.week + interval '1 week'
+      GROUP BY w.week, o.customer_id
+    )
+    SELECT
+      week::date AS week,
+      sum(orders) AS numerator,
+      count(*) AS denominator,
+      sum(orders)::numeric / nullif(count(*), 0) AS value
+    FROM per_customer
+    GROUP BY week
+    ORDER BY week;
+  bigquery: |-
+    -- Purchase frequency: orders in the 52 weeks ending each week ÷ customers who ordered in them, for each of the last 26 complete weeks.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(
+        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK),
+        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK),
+        INTERVAL 1 WEEK
+      )) AS week
+    ),
+    paid_orders AS (
+      SELECT
+        COALESCE(JSON_VALUE(properties, '$.customer_id'), user_id) AS customer_id,
+        JSON_VALUE(properties, '$.order_id') AS order_id,
+        occurred_at
+      FROM events
+      WHERE event_name = 'order_completed'
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 77 WEEK))
+    ),
+    per_customer AS (
+      SELECT w.week, o.customer_id, COUNT(DISTINCT o.order_id) AS orders
+      FROM weeks AS w
+      JOIN paid_orders AS o
+        ON o.occurred_at >= TIMESTAMP(DATE_SUB(w.week, INTERVAL 51 WEEK))
+       AND o.occurred_at < TIMESTAMP(DATE_ADD(w.week, INTERVAL 1 WEEK))
+      GROUP BY w.week, o.customer_id
+    )
+    SELECT
+      week,
+      SUM(orders) AS numerator,
+      COUNT(*) AS denominator,
+      SAFE_DIVIDE(SUM(orders), COUNT(*)) AS value
+    FROM per_customer
+    GROUP BY week
+    ORDER BY week;
+  snowflake: |-
+    -- Purchase frequency: orders in the 52 weeks ending each week ÷ customers who ordered in them, for each of the last 26 complete weeks. Assumes WEEK_START = 1 (Monday).
+    WITH weeks AS (
+      SELECT DATEADD(week, -ROW_NUMBER() OVER (ORDER BY SEQ4()), DATE_TRUNC('week', CURRENT_DATE())) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    paid_orders AS (
+      SELECT
+        COALESCE(properties:customer_id::string, user_id) AS customer_id,
+        properties:order_id::string AS order_id,
+        occurred_at
+      FROM events
+      WHERE event_name = 'order_completed'
+        AND occurred_at >= DATEADD(week, -77, DATE_TRUNC('week', CURRENT_DATE()))
+    ),
+    per_customer AS (
+      SELECT w.week, o.customer_id, COUNT(DISTINCT o.order_id) AS orders
+      FROM weeks AS w
+      JOIN paid_orders AS o
+        ON o.occurred_at >= DATEADD(week, -51, w.week)
+       AND o.occurred_at < DATEADD(week, 1, w.week)
+      GROUP BY w.week, o.customer_id
+    )
+    SELECT
+      week,
+      SUM(orders) AS numerator,
+      COUNT(*) AS denominator,
+      DIV0NULL(SUM(orders), COUNT(*)) AS value
+    FROM per_customer
+    GROUP BY week
+    ORDER BY week;
+
+noise:
+  type: process
+  min_denominator: 200
+  volume_unit: customers who ordered in the last 52 weeks
+  typical: 1.44
+
+example:
+  business: store
+  level: 1.44
+  volume: 470000
+  trend: 0.02
+
+drivers:
+  - id: order-splitting
+    label: How orders are recorded
+    dropped:
+      check: Did customer matching break, so one buyer's orders are spread across several ids?
+      yes: Customers in the window grow faster than orders, and most of the new ids have a single order.
+    spiked:
+      check: Did a checkout change start splitting one purchase into several orders, or did a duplicate order event appear?
+      yes: Orders rise faster than revenue and order value falls by about the same share.
+  - id: roll-off
+    label: The week leaving the window
+    dropped:
+      check: Is a week of heavy repeat buying from a year ago leaving the 52-week window?
+      yes: The week 52 weeks back had far more repeat orders than usual.
+    spiked:
+      check: Is a week of one-time sale buyers from a year ago leaving the window?
+      yes: The week 52 weeks back was a sale week with a flood of first orders that never returned.
+  - id: acquisition-mix
+    label: New customers entering
+    metric: new-customers
+    dropped:
+      check: Did many new customers join recently? They have had little time to reorder, so frequency falls as they arrive.
+      yes: New customers over the last 8 to 12 weeks run well above the same weeks last year.
+    spiked:
+      check: Did acquisition slow, leaving a base of longer-standing customers?
+      yes: New customers run below last year while orders from returning customers hold.
+  - id: second-orders
+    label: Second orders from recent cohorts
+    metric: second-order-rate
+    dropped:
+      check: Are recent cohorts reordering less within 90 days?
+      yes: Second order rate has fallen for the last few mature cohorts.
+    spiked:
+      check: Are recent cohorts reordering more within 90 days?
+      yes: Second order rate has risen for the last few mature cohorts.
+  - id: retention-marketing
+    label: Replenishment and retention
+    metric: email-click-rate
+    dropped:
+      check: Did a replenishment reminder, subscription option or loyalty offer stop?
+      yes: Orders from that flow or programme fell to near zero weeks ago.
+    spiked:
+      check: Did a subscribe-and-save option, loyalty programme or replenishment flow launch?
+      yes: Orders from the new programme account for most of the gain.
+
+diagnose_order: [order-splitting, roll-off, acquisition-mix, second-orders, retention-marketing]
+
+related: [repeat-purchase-rate, customer-lifetime-value, aov, active-customers, second-order-rate]
+
+prose:
+  why_it_matters: >-
+    Purchase frequency is half of what a customer is worth: a year of revenue per customer is order
+    value times how often they order. Most stores sit between 1.2 and 2 orders a year, so moving
+    from 1.40 to 1.50 lifts what each customer is worth by 7% without spending a dollar more on
+    acquisition. It changes slowly; a sudden weekly jump is usually a change in how orders are
+    recorded.
+  pitfalls:
+    - Splitting one purchase into several orders, for pre-orders or separate shipments, raises frequency without anyone buying more. Count orders the way the customer placed them.
+    - New customers have had less time to reorder, so a fast-growing store's frequency falls even while loyalty holds. Compare cohorts of the same age when it matters.
+    - Frequency over 90 days and over 365 days are different numbers. This spec uses 52 weeks and every comparison must too.
+    - A handful of wholesale or reseller accounts with dozens of orders each can lift the average. Exclude them or report them separately.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

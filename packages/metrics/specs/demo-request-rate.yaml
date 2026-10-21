@@ -1,0 +1,121 @@
+id: demo-request-rate
+name: Demo request rate
+aliases:
+  - Demo conversion rate
+  - Book a demo rate
+  - Contact sales rate
+family: activation
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of this week's new visitors who requested a demo or a sales call.
+  formula: People who requested a demo ÷ people whose first ever visit was this week
+
+events:
+  - name: $pageview
+    description: One per page view; a person's first ever page view marks them as a new visitor.
+    also_called: [page_view, Page Viewed, page]
+    properties:
+      - name: utm_source
+        description: The campaign source of the visit, when tagged.
+  - name: demo_requested
+    description: A demo or contact-sales form accepted by the server or the CRM, not a click on the button.
+    also_called: [Demo Requested, generate_lead, form_submitted]
+    properties: []
+
+numerator:
+  label: People who requested a demo
+  aggregate: unique_users
+  event: demo_requested
+denominator:
+  label: New visitors
+  aggregate: first_time_users
+  event: $pageview
+
+noise:
+  type: binomial
+  min_denominator: 2000
+  volume_unit: new visitors a week
+  typical: 0.0025
+  reference_volumes: [5000, 20000, 60000, 200000]
+
+example:
+  business: saas
+  level: 0.0025
+  volume: 55000
+  trend: 0.03
+
+drivers:
+  - id: tracking
+    label: Form tracking
+    dropped:
+      check: Did the form, its embed or its event break, for example after a CRM or consent change?
+      yes: Requests in the CRM hold while recorded requests fall, or the form errors on one browser.
+    spiked:
+      check: Is the event firing on button clicks or on every form step instead of once per request?
+      yes: Recorded requests exceed leads in the CRM.
+  - id: spam
+    label: Spam and bots
+    dropped:
+      check: Did a new captcha or email check start rejecting real prospects?
+      yes: Form starts hold while accepted requests fall from the day the filter shipped.
+    spiked:
+      check: Are bots or spammers filling the form?
+      yes: Requests cluster in one country or email domain with fake company names, and none book a meeting.
+  - id: calendar
+    label: Holidays and quarter timing
+    feed: holidays
+    dropped:
+      check: Is this a holiday week, or the end of a quarter when buyers have spent their budget?
+      yes: The same week last year shows the same dip.
+    spiked:
+      check: Is this the start of a quarter or budget season?
+      yes: The same weeks last year show the same rise.
+  - id: traffic-mix
+    label: Who arrived
+    metric: unique-visitors
+    feed: google-search
+    dropped:
+      check: Did low-intent traffic grow, from a viral post, a broad campaign or a blog ranking?
+      yes: New visitors rise from one source that almost never asks for a demo.
+    spiked:
+      check: Did high-intent traffic grow, from comparison pages, review sites or an account-based campaign?
+      yes: New visitors from one high-intent source rise and request demos at several times the usual rate.
+  - id: page-change
+    label: Call to action and pricing page
+    dropped:
+      check: Did the demo button move, a pricing page change, or the form get longer?
+      yes: Clicks on the demo call to action fall from the day the change shipped.
+    spiked:
+      check: Did pricing become contact-sales only, or a demo call to action appear on more pages?
+      yes: Requests rise from the pages where the call to action was added.
+  - id: self-serve
+    label: Self-serve alternative
+    metric: signup-rate
+    dropped:
+      check: Did a free trial or self-serve plan launch, pulling would-be demo requests into signups?
+      yes: Signup rate rises as demo request rate falls, from the same day.
+    spiked:
+      check: Did self-serve signup get harder or a free plan go away?
+      yes: Signup rate falls as demo request rate rises, from the same day.
+
+diagnose_order: [tracking, spam, calendar, traffic-mix, page-change, self-serve]
+
+related: [signup-rate, new-paid-accounts, unique-visitors, trial-starts, signups]
+
+prose:
+  why_it_matters: >-
+    For a sales-led product, a demo request is the signup: the first moment a visitor becomes a lead
+    with a name. It usually runs between 0.2% and 1% of visitors, so the weekly count is small and
+    noisy; at Copperline's 55,000 new visitors a week, a move of a quarter of the rate either way is
+    still chance.
+  pitfalls:
+    - Spam bots fill demo forms. Count requests that pass validation or reach the CRM, or one bad week doubles the rate.
+    - A request is not a qualified meeting. Track the share that books and attends before celebrating a rise.
+    - Adding a free trial or a self-serve plan moves would-be demo requests into signups. Read it next to signup rate after any packaging change.
+    - Long B2B research cycles mean many requesters first visited weeks earlier and count in the numerator only. Compare the rate with itself over time, not with another company's.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

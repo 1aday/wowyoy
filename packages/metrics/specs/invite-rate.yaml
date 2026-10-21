@@ -1,0 +1,239 @@
+id: invite-rate
+name: Invite rate
+aliases:
+  - Teammate invite rate
+  - Invitation rate
+  - Viral invite rate
+family: activation
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of people who signed up in a week who invited at least one other person within 7 days of signing up.
+  formula: Signups who sent an invite within 7 days ÷ signups, by signup week
+
+events:
+  - name: signed_up
+    description: An account created, sent by the server when the account exists, not when the form is submitted.
+    also_called: [sign_up, Signed Up, user_signed_up, account_created]
+    properties:
+      - name: method
+        description: How the account was created, such as email, google, sso or invite.
+      - name: plan
+        description: The plan chosen at signup, if any.
+  - name: invite_sent
+    description: An invitation to the product sent to another person, one event per invitation.
+    also_called: [Invite Sent, Invitation Sent, user_invited]
+    properties: []
+
+numerator:
+  label: Signups who invited someone within 7 days
+  aggregate: unique_users
+  event: invite_sent
+denominator:
+  label: People who signed up
+  aggregate: unique_users
+  event: signed_up
+
+queries:
+  hogql: |-
+    -- Invite rate: of people whose first signup fell in each week, the share who sent at least one invite within 7 days of signing up. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close.
+    SELECT
+      toString(week_start) AS week,
+      countIf(converted) AS numerator,
+      count() AS denominator,
+      if(count() > 0, countIf(converted) / count(), NULL) AS value
+    FROM (
+      SELECT
+        toMonday(s.start_at) AS week_start,
+        countIf(x.ts >= s.start_at AND x.ts < s.start_at + toIntervalDay(7)) > 0 AS converted
+      FROM (
+        SELECT person_id, min(timestamp) AS start_at
+        FROM events
+        WHERE event = 'signed_up'
+        GROUP BY person_id
+      ) AS s
+      LEFT JOIN (
+        SELECT person_id, timestamp AS ts
+        FROM events
+        WHERE event = 'invite_sent'
+          AND timestamp >= toMonday(now()) - toIntervalWeek(27)
+      ) AS x ON x.person_id = s.person_id
+      WHERE s.start_at >= toMonday(now()) - toIntervalWeek(27)
+        AND s.start_at < toMonday(now()) - toIntervalWeek(1)
+      GROUP BY week_start, s.person_id
+    )
+    GROUP BY week_start
+    ORDER BY week_start
+  postgres: |-
+    -- Invite rate: of people whose first signup fell in each week, the share who sent at least one invite within 7 days of signing up. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close.
+    WITH starts AS (
+      SELECT user_id, min(occurred_at) AS start_at
+      FROM events
+      WHERE event_name = 'signed_up'
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT
+        date_trunc('week', s.start_at)::date AS week,
+        s.user_id,
+        count(x.occurred_at) > 0 AS converted
+      FROM starts s
+      LEFT JOIN events x
+        ON x.user_id = s.user_id
+       AND x.event_name = 'invite_sent'
+       AND x.occurred_at >= s.start_at
+       AND x.occurred_at < s.start_at + interval '7 days'
+      WHERE s.start_at >= date_trunc('week', now()) - interval '27 weeks'
+        AND s.start_at < date_trunc('week', now()) - interval '1 week'
+      GROUP BY week, s.user_id
+    )
+    SELECT
+      week,
+      count(*) FILTER (WHERE converted) AS numerator,
+      count(*) AS denominator,
+      (count(*) FILTER (WHERE converted))::numeric / nullif(count(*), 0) AS value
+    FROM cohort
+    GROUP BY week
+    ORDER BY week;
+  bigquery: |-
+    -- Invite rate: of people whose first signup fell in each week, the share who sent at least one invite within 7 days of signing up. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close.
+    WITH starts AS (
+      SELECT user_id, MIN(occurred_at) AS start_at
+      FROM events
+      WHERE event_name = 'signed_up'
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT
+        DATE_TRUNC(DATE(s.start_at), ISOWEEK) AS week,
+        s.user_id,
+        COUNT(x.occurred_at) > 0 AS converted
+      FROM starts AS s
+      LEFT JOIN events AS x
+        ON x.user_id = s.user_id
+       AND x.event_name = 'invite_sent'
+       AND x.occurred_at >= s.start_at
+       AND x.occurred_at < TIMESTAMP_ADD(s.start_at, INTERVAL 7 DAY)
+      WHERE s.start_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 27 WEEK))
+        AND s.start_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK))
+      GROUP BY week, s.user_id
+    )
+    SELECT
+      week,
+      COUNTIF(converted) AS numerator,
+      COUNT(*) AS denominator,
+      SAFE_DIVIDE(COUNTIF(converted), COUNT(*)) AS value
+    FROM cohort
+    GROUP BY week
+    ORDER BY week;
+  snowflake: |-
+    -- Invite rate: of people whose first signup fell in each week, the share who sent at least one invite within 7 days of signing up. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close. Assumes WEEK_START = 1 (Monday).
+    WITH starts AS (
+      SELECT user_id, MIN(occurred_at) AS start_at
+      FROM events
+      WHERE event_name = 'signed_up'
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT
+        DATE_TRUNC('week', s.start_at)::date AS week,
+        s.user_id,
+        COUNT(x.occurred_at) > 0 AS converted
+      FROM starts AS s
+      LEFT JOIN events AS x
+        ON x.user_id = s.user_id
+       AND x.event_name = 'invite_sent'
+       AND x.occurred_at >= s.start_at
+       AND x.occurred_at < DATEADD(day, 7, s.start_at)
+      WHERE s.start_at >= DATEADD(week, -27, DATE_TRUNC('week', CURRENT_DATE()))
+        AND s.start_at < DATEADD(week, -1, DATE_TRUNC('week', CURRENT_DATE()))
+      GROUP BY week, s.user_id
+    )
+    SELECT
+      week,
+      COUNT_IF(converted) AS numerator,
+      COUNT(*) AS denominator,
+      DIV0NULL(COUNT_IF(converted), COUNT(*)) AS value
+    FROM cohort
+    GROUP BY week
+    ORDER BY week;
+
+noise:
+  type: binomial
+  min_denominator: 100
+  volume_unit: signups in the cohort
+  typical: 0.16
+
+example:
+  business: saas
+  level: 0.16
+  volume: 2200
+  trend: 0.05
+
+drivers:
+  - id: tracking
+    label: Invite event
+    dropped:
+      check: Did the invite event stop firing for one invite path, such as share links or bulk invites?
+      yes: Invites from one path fall to zero while accepted invites in the database hold.
+    spiked:
+      check: Is the event firing on opening the invite dialog, or once per address in a bulk upload counted as several people?
+      yes: Invites recorded far exceed invitations stored, or the rise comes from dialog opens with no addresses.
+  - id: invite-flow
+    label: Invite prompt
+    breakdown: $device_type
+    dropped:
+      check: Did the invite prompt move, get hidden, or break on one device?
+      yes: Invites fall from the day of a release, concentrated on one device or screen.
+    spiked:
+      check: Was an invite step added to onboarding, or made more prominent?
+      yes: Invites rise from the release date; check that invitees accept and use the product.
+  - id: plan-limits
+    label: Seats and pricing
+    breakdown: plan
+    dropped:
+      check: Did seat limits tighten or per-seat pricing start, making an invite cost money?
+      yes: Invites fall on the affected plans from the day of the change while others hold.
+    spiked:
+      check: Did a plan add free seats or remove a seat limit?
+      yes: Invites rise on that plan from the day of the change.
+  - id: signup-mix
+    label: Who signed up
+    metric: signups
+    breakdown: method
+    dropped:
+      check: Did more of the cohort arrive by invite? Invitees join an existing team and invite less.
+      yes: The share of signups by invite rose while the rate within each method held.
+    spiked:
+      check: Did more of the cohort arrive as team founders, from a campaign aimed at managers?
+      yes: The share of signups by email or SSO rose while the rate within each method held.
+  - id: activation
+    label: Reaching value first
+    metric: activation-rate
+    dropped:
+      check: Did fewer people reach the point where sharing the product makes sense?
+      yes: Activation fell for the same cohorts, and invites fell among non-activated users first.
+    spiked:
+      check: Did more people reach the point where sharing makes sense?
+      yes: Activation rose for the same cohorts by a similar share.
+
+diagnose_order: [tracking, invite-flow, plan-limits, signup-mix, activation]
+
+related: [activation-rate, signups, onboarding-completion-rate, week-1-retention, feature-adoption-rate]
+
+prose:
+  why_it_matters: >-
+    In a team product the first invite is the moment a trial becomes something more than one person
+    relies on, and it drives the viral loop: every new user who invites others brings signups nobody
+    paid for. Team tools often count an early invite as part of activation. At Copperline about 16%
+    of new signups invite someone in their first week.
+  pitfalls:
+    - Count people who invite, not invites sent. An admin inviting forty colleagues from a spreadsheet is one inviter.
+    - Invited users sign up too, and they invite less. A week with many invite-driven signups lowers the rate with no change in the product.
+    - A forced invite step in onboarding raises the rate and fills the list with invites nobody accepts. Track the share of invites accepted alongside it.
+    - Only cohorts whose 7 days have closed are reported, so the latest point is the signups of two weeks ago.
+
+reviewed_by: null
+reviewed_at: null
+version: 1
