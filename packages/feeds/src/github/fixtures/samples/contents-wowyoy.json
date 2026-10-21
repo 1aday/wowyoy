@@ -1,0 +1,12 @@
+{
+  "type": "file",
+  "encoding": "base64",
+  "size": 13,
+  "name": ".wowyoy",
+  "path": ".wowyoy",
+  "content": "b3B0b3V0OiB0cnVlCg==\n",
+  "sha": "3f1a2c0e9d5b7a4f6e8c1d2b3a4f5e6d7c8b9a0f",
+  "url": "https://api.github.com/repos/example/example/contents/.wowyoy?ref=main",
+  "html_url": "https://github.com/example/example/blob/main/.wowyoy",
+  "download_url": "https://raw.githubusercontent.com/example/example/main/.wowyoy"
+}
