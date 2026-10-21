@@ -81,10 +81,10 @@ queries:
     FROM (
       SELECT
         date_trunc('week', occurred_at)::date AS week,
-        coalesce(sum((properties->>'mrr')::numeric) FILTER (WHERE event_name = 'subscription_started'), 0) AS new_mrr,
-        coalesce(sum((properties->>'mrr_delta')::numeric) FILTER (WHERE event_name = 'subscription_expanded'), 0) AS expansion_mrr,
-        coalesce(sum((properties->>'mrr_delta')::numeric) FILTER (WHERE event_name = 'subscription_contracted'), 0) AS contraction_mrr,
-        coalesce(sum((properties->>'mrr')::numeric) FILTER (WHERE event_name = 'subscription_canceled'), 0) AS churned_mrr
+        coalesce(sum(CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END) FILTER (WHERE event_name = 'subscription_started'), 0) AS new_mrr,
+        coalesce(sum(CASE WHEN properties->>'mrr_delta' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr_delta')::numeric END) FILTER (WHERE event_name = 'subscription_expanded'), 0) AS expansion_mrr,
+        coalesce(sum(CASE WHEN properties->>'mrr_delta' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr_delta')::numeric END) FILTER (WHERE event_name = 'subscription_contracted'), 0) AS contraction_mrr,
+        coalesce(sum(CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END) FILTER (WHERE event_name = 'subscription_canceled'), 0) AS churned_mrr
       FROM events
       WHERE event_name IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
         AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'

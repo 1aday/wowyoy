@@ -110,7 +110,7 @@ queries:
   postgres: |-
     -- LTV to CAC: gross profit (order totals − cost of goods − refunds) from each first-order week's new customers over their first 365 days ÷ ad spend in that week. First-order weeks 79 to 54 weeks ago; younger cohorts are left out until their 365 days close.
     WITH refunds AS (
-      SELECT properties->>'order_id' AS order_id, sum((properties->>'amount')::numeric) AS refunded
+      SELECT properties->>'order_id' AS order_id, sum(CASE WHEN properties->>'amount' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN CASE WHEN properties->>'amount' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'amount')::numeric END END) AS refunded
       FROM events
       WHERE event_name = 'order_refunded'
         AND occurred_at >= date_trunc('week', now()) - interval '79 weeks'
@@ -121,8 +121,8 @@ queries:
         coalesce(e.properties->>'customer_id', e.user_id) AS customer_id,
         e.properties->>'is_first_order' = 'true' AS is_first_order,
         e.occurred_at,
-        (e.properties->>'total')::numeric
-          - coalesce((e.properties->>'cost_of_goods')::numeric, 0)
+        CASE WHEN e.properties->>'total' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN CASE WHEN e.properties->>'total' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (e.properties->>'total')::numeric END END
+          - coalesce(CASE WHEN e.properties->>'cost_of_goods' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN CASE WHEN e.properties->>'cost_of_goods' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (e.properties->>'cost_of_goods')::numeric END END, 0)
           - coalesce(r.refunded, 0) AS gross_profit
       FROM events e
       LEFT JOIN refunds r ON r.order_id = e.properties->>'order_id'
@@ -146,7 +146,7 @@ queries:
       GROUP BY 1
     ),
     spend AS (
-      SELECT date_trunc('week', occurred_at)::date AS week, sum((properties->>'spend')::numeric) AS spend
+      SELECT date_trunc('week', occurred_at)::date AS week, sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END END) AS spend
       FROM events
       WHERE event_name = 'ad_spend'
         AND occurred_at >= date_trunc('week', now()) - interval '79 weeks'

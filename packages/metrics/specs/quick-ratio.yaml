@@ -76,10 +76,10 @@ queries:
     WITH flows AS (
       SELECT
         date_trunc('week', occurred_at)::date AS week,
-        coalesce(sum((properties->>'mrr')::numeric) FILTER (WHERE event_name = 'subscription_started'), 0)
-          + coalesce(sum((properties->>'mrr_delta')::numeric) FILTER (WHERE event_name = 'subscription_expanded'), 0) AS gained,
-        coalesce(sum((properties->>'mrr')::numeric) FILTER (WHERE event_name = 'subscription_canceled'), 0)
-          + coalesce(sum((properties->>'mrr_delta')::numeric) FILTER (WHERE event_name = 'subscription_contracted'), 0) AS lost
+        coalesce(sum(CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END) FILTER (WHERE event_name = 'subscription_started'), 0)
+          + coalesce(sum(CASE WHEN properties->>'mrr_delta' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr_delta')::numeric END) FILTER (WHERE event_name = 'subscription_expanded'), 0) AS gained,
+        coalesce(sum(CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END) FILTER (WHERE event_name = 'subscription_canceled'), 0)
+          + coalesce(sum(CASE WHEN properties->>'mrr_delta' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr_delta')::numeric END) FILTER (WHERE event_name = 'subscription_contracted'), 0) AS lost
       FROM events
       WHERE event_name IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
         AND occurred_at >= date_trunc('week', now()) - interval '29 weeks'

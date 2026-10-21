@@ -4,7 +4,6 @@ import {
   dialects,
   familyNames,
   isReviewed,
-  judge,
   twoWeekTest,
   type Dialect,
   type MetricSpec,
@@ -298,9 +297,7 @@ function fluke(args: Record<string, unknown>, specs: readonly MetricSpec[]): Too
     )
   }
 
-  let verdict: NoiseVerdict | null
-  if (kind === "average") verdict = judge([before, after], { type: "mean", min_denominator: 30, cv }, [volume!, volume!])
-  else verdict = twoWeekTest({ kind, before, after, volume, cv })
+  const verdict: NoiseVerdict | null = twoWeekTest({ kind, before, after, volume, cv })
   if (!verdict) return fail("Those numbers can't be tested: check that they are finite and that counts are positive.")
 
   const flukeUrl = absolute(

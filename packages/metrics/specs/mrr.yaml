@@ -69,7 +69,7 @@ queries:
     latest AS (
       SELECT DISTINCT ON (w.week, e.properties->>'subscription_id')
         w.week,
-        (e.properties->>'mrr')::numeric AS mrr,
+        CASE WHEN e.properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (e.properties->>'mrr')::numeric END AS mrr,
         e.properties->>'status' AS status
       FROM weeks w
       JOIN events e

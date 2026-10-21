@@ -81,7 +81,7 @@ queries:
       SELECT DISTINCT ON (w.week, e.properties->>'subscription_id')
         w.week,
         e.user_id AS customer,
-        (e.properties->>'mrr')::numeric AS mrr,
+        CASE WHEN e.properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (e.properties->>'mrr')::numeric END AS mrr,
         e.properties->>'status' AS status
       FROM weeks AS w
       JOIN events AS e

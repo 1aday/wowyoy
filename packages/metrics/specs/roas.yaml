@@ -87,7 +87,7 @@ queries:
   postgres: |-
     -- ROAS per week: revenue from orders placed in sessions that arrived through a paid ad ÷ ad spend, both by the week they happened.
     WITH spend AS (
-      SELECT date_trunc('week', occurred_at)::date AS week, sum((properties->>'spend')::numeric) AS spend
+      SELECT date_trunc('week', occurred_at)::date AS week, sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END) AS spend
       FROM events
       WHERE event_name = 'ad_spend'
         AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
@@ -108,7 +108,7 @@ queries:
       ORDER BY session_id, occurred_at
     ),
     paid_revenue AS (
-      SELECT date_trunc('week', o.occurred_at)::date AS week, sum((o.properties->>'total')::numeric) AS revenue
+      SELECT date_trunc('week', o.occurred_at)::date AS week, sum(CASE WHEN o.properties->>'total' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (o.properties->>'total')::numeric END) AS revenue
       FROM events AS o
       JOIN entries AS e ON e.session_id = o.session_id
       WHERE o.event_name = 'order_completed'

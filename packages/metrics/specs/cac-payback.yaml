@@ -70,7 +70,7 @@ queries:
     -- CAC payback per week, in months: acquisition spend ÷ (new MRR from first subscriptions × gross margin).
     -- Gross margin is set to 0.80 below; replace it with your own.
     WITH spend AS (
-      SELECT date_trunc('week', occurred_at)::date AS week, sum((properties->>'spend')::numeric) AS spend
+      SELECT date_trunc('week', occurred_at)::date AS week, sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END) AS spend
       FROM events
       WHERE event_name = 'ad_spend'
         AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
@@ -78,7 +78,7 @@ queries:
       GROUP BY 1
     ),
     new_mrr AS (
-      SELECT date_trunc('week', occurred_at)::date AS week, sum((properties->>'mrr')::numeric) AS new_mrr
+      SELECT date_trunc('week', occurred_at)::date AS week, sum(CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END) AS new_mrr
       FROM events
       WHERE event_name = 'subscription_started'
         AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
