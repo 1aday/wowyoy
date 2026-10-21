@@ -215,8 +215,8 @@ drivers:
     label: Weekends and holidays
     feed: holidays
     dropped:
-      check: Did the cohort sign up mostly early in the week, with no holiday in its first days?
-      yes: The same cohort weeks last year show the same faster time.
+      check: Did more of the cohort sign up early in the week, or was the previous cohort slowed by a holiday?
+      yes: A larger share of the cohort signed up Monday to Wednesday than usual, or last week's cohort had a holiday in its first days.
     spiked:
       check: Did the cohort's first days include a holiday or a long weekend, so people signed up and came back later?
       yes: The same cohort weeks last year show the same slower time.
@@ -263,9 +263,8 @@ related: [activation-rate, onboarding-completion-rate, signups, week-1-retention
 prose:
   why_it_matters: >-
     Every hour between signup and value is an hour in which a new user can leave. Time to value is
-    the speed of activation, as activation rate is its reach, and products that cut it usually lift
-    activation too. At Copperline the median new user reaches the milestone in about 22 hours, so a
-    weekend in the middle of setup is enough to move it.
+    the speed of activation, as activation rate is its reach. At Copperline the median user who
+    activates gets there in about 22 hours, so a weekend in the middle of setup is enough to move it.
   pitfalls:
     - It only counts people who got there. When slow users stop activating at all, the median gets faster while the business gets worse, so always read it next to activation rate.
     - Use the median, not the mean. A few accounts that take six days pull the average far from what a typical user experiences.

@@ -255,15 +255,15 @@ related: [conversion-rate, product-view-rate, add-to-cart-rate, revenue-per-sess
 
 prose:
   why_it_matters: >-
-    Shoppers who search say what they want in their own words, and they convert at roughly
-    twice the store average; at Northwind, 5.2% against 2.2%. A fall here is usually something
+    Shoppers who search say what they want in their own words, and they usually convert well
+    above the store average; at Northwind, 5.2% against 2.1%. A fall here is usually something
     the team controls, such as a search app update, lost synonyms or empty results for the
     words people actually type.
   pitfalls:
     - Searchers are more committed than average, so a high search conversion doesn't prove search works. Compare search conversion with itself over time, not with the store rate.
     - Predictive search that fires the event on each keystroke counts sessions that never submitted a search. Fire product_searched on submit or on the results view.
     - This spec credits search only when the order follows in the same session. A shopper who searches today and buys tomorrow counts as a search that didn't convert.
-    - Zero-result searches are the fastest thing to check. A rise in dead-end searches nearly always comes before a fall in search conversion.
+    - Zero-result searches are the fastest thing to check. A catalogue, synonym or search app change shows up there on the day it ships, often before orders tell you.
 
 reviewed_by: null
 reviewed_at: null

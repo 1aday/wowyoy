@@ -74,7 +74,7 @@ drivers:
     feed: ad-platforms
     dropped:
       check: Did prospecting spend fall or a campaign stop serving?
-      yes: Paid sessions fall by about the same number of people.
+      yes: Paid sessions fall in the same days, and visitors from paid sources account for most of the drop.
     spiked:
       check: Did a prospecting campaign or a budget increase start?
       yes: Paid sessions rise and the new people come from one platform.
@@ -101,7 +101,7 @@ prose:
     A store with 390,000 visitors a week can lose 3% of them to a cookie change without a
     single real person leaving.
   pitfalls:
-    - A visitor is a browser, not a person. Phone and laptop count twice, and Safari's seven-day limit on script-set cookies makes a weekly returner look new.
+    - A visitor is a browser, not a person. Phone and laptop count twice, and Safari's seven-day limit on script-set cookies makes anyone who returns after more than a week look new.
     - Weekly unique visitors don't add up to monthly unique visitors. Never sum weeks; count distinct people over the longer window.
     - In a warehouse, count the anonymous id for visitors who never log in. Counting only user_id drops most of a store's traffic.
     - Merging anonymous and identified people, as PostHog does on login, can lower past weeks' counts after the fact. Freeze last week's number when you report it.

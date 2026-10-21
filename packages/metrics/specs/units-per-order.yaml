@@ -24,7 +24,7 @@ events:
       - name: order_id
         description: Unique per order; deduplicates retries and reloads.
       - name: is_first_order
-        description: True when it is the customer's first ever paid order.
+        description: True when the store has no earlier order from this customer, from its own customer records.
 
 numerator:
   label: Items sold
@@ -95,8 +95,8 @@ drivers:
     label: First vs repeat orders
     breakdown: is_first_order
     dropped:
-      check: Did first orders, which tend to hold fewer items, take a larger share?
-      yes: Each group's average holds and only the mix moved.
+      check: Did first orders take a larger share of orders, and do they hold fewer items than repeat orders?
+      yes: First orders average fewer items, each group's average holds, and only the mix moved.
     spiked:
       check: Did repeat customers, who know what they want, take a larger share?
       yes: The mix moved toward repeat orders while each group's average held.
@@ -115,6 +115,7 @@ prose:
     - Decide whether item_count counts units or line items and keep it; switching changes every multi-quantity order.
     - Free gifts, samples and shipping protection count as items unless excluded, so a gift-with-purchase lifts units with no extra sales.
     - A bundle sold as one product counts as one item. Splitting a bundle into its parts in the catalogue changes units per order without changing what shoppers bought.
+    - Basket size means units in some reports and order value in others. This page uses units; AOV is the value.
     - An average hides the shape. A move from 1.8 to 1.9 usually means fewer one-item orders, not bigger baskets everywhere; check the share of one-item orders.
 
 reviewed_by: null

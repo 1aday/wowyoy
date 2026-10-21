@@ -21,7 +21,7 @@ events:
         description: The plan being trialled.
   - name: subscription_started
     description: The first paid period of a subscription, sent by the billing system when the first payment succeeds.
-    also_called: [Subscription Started, customer.subscription.created, invoice.paid (first)]
+    also_called: [Subscription Started, customer.subscription.updated (trialing to active), invoice.paid (first)]
     properties:
       - name: subscription_id
         description: The billing system's subscription id.
@@ -268,16 +268,16 @@ related: [trial-starts, new-paid-accounts, activation-rate, time-to-value, logo-
 
 prose:
   why_it_matters: >-
-    Trial conversion is where a product proves it is worth paying for. Benchmarks split by trial
-    type: trials without a card up front usually convert around 15 to 25%, card-required trials
-    around half. Read by trial-start cohort, each week's number answers a question about the trials
-    that began then, not about whoever happened to pay this week.
+    Trial conversion is where a product proves it is worth paying for. Its level depends on the
+    trial terms: requiring a card up front means fewer trials and a much higher share of them
+    converting, so compare only within one policy. Read by trial-start cohort, each week's number
+    answers a question about the trials that began then, not about whoever happened to pay this week.
   pitfalls:
     - Conversions this week ÷ trials started this week mixes cohorts and swings with last month's trial volume. This spec follows each trial cohort for 30 days.
     - Thirty days covers trials of up to about three weeks plus a grace period. For a 30-day trial use a window of at least 37 days, or every cohort looks low.
     - Only cohorts whose 30 days have closed are reported, so the latest point is trials that started 6 weeks ago.
     - Failed card charges at trial end are lost conversions, not lost interest. Check failed first payments before changing the product.
-    - At 160 trials a week a move of 9 points is still chance. Small products should judge trial conversion over four-week groups.
+    - At 160 trials a week a move of 8 points is still chance. Small products should judge trial conversion over four-week groups.
 
 reviewed_by: null
 reviewed_at: null

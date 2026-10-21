@@ -178,7 +178,7 @@ queries:
     ORDER BY w.week;
 
 noise:
-  type: process
+  type: binomial
   min_denominator: 100
   volume_unit: new people in the cohort
   typical: 0.3
@@ -251,8 +251,8 @@ related: [week-4-retention, activation-rate, onboarding-completion-rate, signups
 prose:
   why_it_matters: >-
     Week 1 retention is the first honest read of whether new people found what they came for, and
-    it caps every later week: people who don't come back in their second week rarely come back at
-    all. Because it is read per arrival cohort, it shows an onboarding or acquisition change within
+    later weeks usually follow it: a cohort that keeps fewer people in its second week tends to
+    keep fewer for good. Because it is read per arrival cohort, it shows an onboarding or acquisition change within
     three weeks. A drop from 31% to 27% on 8,500 new people a week is 340 people a week who would
     otherwise have stayed.
   pitfalls:

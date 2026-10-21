@@ -3,8 +3,6 @@ name: Revenue per session
 aliases:
   - Revenue per visit
   - RPS
-  - Revenue per visitor
-  - RPV
   - Session value
 family: revenue
 kind: currency
@@ -17,7 +15,7 @@ definition:
 events:
   - name: $pageview
     description: A page loaded in the browser. Sessions are the distinct session ids across page views.
-    also_called: [page_view, Page Viewed, page_viewed]
+    also_called: [page_view, Page Viewed, page]
     properties:
       - name: $session_id
         description: The browser session; a new one starts after 30 minutes without activity.
@@ -48,7 +46,7 @@ noise:
 
 example:
   business: store
-  level: 2.22
+  level: 2.15
   volume: 600000
   trend: 0.1
   season: 1
@@ -115,8 +113,8 @@ related: [conversion-rate, aov, sessions, net-revenue, cpc]
 prose:
   why_it_matters: >-
     Revenue per session is what a visit is worth, so it is the number to set beside what a visit
-    costs. At Northwind a session earns about $2.22; a channel that pays more than that times
-    gross margin, about $1.29, per session loses money on the first order. Because it multiplies
+    costs. At Northwind a session earns about $2.15; at a 53% gross margin, a channel that pays
+    more than about $1.14 per session loses money on the first order. Because it multiplies
     conversion by order value, it is also the fairest single number for tests that trade one
     against the other.
   pitfalls:
