@@ -25,7 +25,7 @@ events:
       - name: total
         description: Order value after discounts, before tax and shipping.
       - name: cost_of_goods
-        description: What the items in the order cost the store.
+        description: The landed cost of the order's items, purchase price plus inbound freight and duties.
   - name: order_refunded
     description: A refund issued against an earlier order, full or partial.
     also_called: [refund, Order Refunded]
@@ -36,7 +36,7 @@ events:
         description: The refunded amount, excluding tax and shipping.
   - name: ad_spend
     description: One row per ad channel per day, synced from the ad platforms.
-    also_called: [Ad Spend, ad_cost, campaign_cost]
+    also_called: [Ad Spend, ad_performance, campaign_daily_stats]
     properties:
       - name: spend
         description: The day's spend on the channel, in the store's currency.
@@ -336,11 +336,11 @@ noise:
   type: process
   min_denominator: 200
   volume_unit: first-time customers in the cohort
-  typical: 1.7
+  typical: 2
 
 example:
   business: store
-  level: 1.7
+  level: 2.2
   volume: 6800
   trend: -0.05
 
@@ -406,13 +406,14 @@ related: [customer-lifetime-value, ncac, blended-cac, cac-payback, gross-margin]
 prose:
   why_it_matters: >-
     LTV to CAC asks whether acquisition pays: at 1.0 a cohort's first year of gross profit only just
-    repays what it cost to win. SaaS investors look for 3 or more over a customer's lifetime; on 12
-    months of realized gross profit, healthy stores usually sit between 1.5 and 3. It checks growth
-    in both directions: below 1 is growth bought too dear, and well above 3 often means the budget
-    could be larger.
+    repays what it cost to win. The 3-to-1 rule of thumb from SaaS counts a whole customer lifetime;
+    12 months of realized gross profit sits lower by construction, so judge it against your own
+    earlier cohorts. At Northwind a year-old cohort earned about $78 of gross profit per customer
+    against about $35 of ad spend, a ratio of 2.2. Below 1 is growth bought too dear; a ratio well above the
+    usual range can mean the budget could grow.
   pitfalls:
     - Use gross profit, not revenue. A revenue ratio of 3 at a 40% margin is a gross-profit ratio of 1.2, which barely pays back.
-    - Blended CAC divides all spend by all new customers and credits paid media with organic buyers, which flatters the ratio. Read paid-channel numbers before raising budgets.
+    - This spec divides all ad spend by all new customers, so organic buyers make paid media look better than it is. Read paid-channel numbers before raising budgets.
     - Ratios built from projected lifetimes, such as ARPA × margin ÷ churn in SaaS, explode as churn nears zero. Cap the lifetime at 3 to 5 years, or use realized months as this spec does.
     - Spend booked in the wrong week, from monthly invoices or a failed sync, makes one cohort look free and the next ruinous. Check daily spend by channel before reading a jump.
     - Only cohorts whose 365 days have closed are reported, so this lags by a year. Steer today's acquisition with new customer CAC and second order rate.

@@ -16,13 +16,13 @@ definition:
 events:
   - name: subscription_started
     description: A subscription's first paid period began.
-    also_called: [Subscription Started, subscription_created]
+    also_called: [Subscription Started, subscription_created, customer.subscription.created]
     properties:
       - name: mrr
         description: The new subscription's monthly amount.
   - name: subscription_expanded
     description: A paying subscription's monthly amount went up.
-    also_called: [Subscription Upgraded, plan_upgraded]
+    also_called: [Subscription Upgraded, plan_upgraded, customer.subscription.updated]
     properties:
       - name: mrr_delta
         description: How much it rose, as a positive number.
@@ -34,7 +34,7 @@ events:
         description: How much it fell, as a positive number.
   - name: subscription_canceled
     description: A subscription stopped being billed.
-    also_called: [customer.subscription.deleted, Subscription Cancelled]
+    also_called: [customer.subscription.deleted, Subscription Cancelled, subscription_ended]
     properties:
       - name: mrr
         description: The monthly amount it was paying before it ended.
@@ -186,7 +186,7 @@ noise:
 example:
   business: saas
   level: 1410
-  volume: 45
+  volume: 60
   trend: 0.35
 
 drivers:
@@ -194,11 +194,11 @@ drivers:
     label: Movements vs MRR
     metric: mrr
     dropped:
-      check: Does this week's net new MRR match the change in MRR from last Sunday to this one?
-      yes: A gap between them means a movement is missing from the event stream, usually a plan change or cancellation that never synced.
+      check: Does net new MRR fall short of the change in the MRR snapshot from last Sunday to this one?
+      yes: The snapshot grew more than the movements add up to, so a start or upgrade never reached the event stream, or a cancellation was recorded twice.
     spiked:
-      check: Does the rise match the change in MRR, or is it larger?
-      yes: Net new MRR runs ahead of the MRR change, which points at a backfill or duplicated subscription_started events.
+      check: Does net new MRR run ahead of the change in the MRR snapshot?
+      yes: The movements add up to more than the snapshot grew, which points at a backfill, duplicated subscription_started events or a cancellation that never synced.
   - id: calendar
     label: Calendar
     feed: holidays
@@ -252,14 +252,14 @@ related: [mrr, new-mrr, expansion-mrr, churned-mrr, quick-ratio]
 prose:
   why_it_matters: >-
     Net new MRR is the week's change in MRR explained by its four movements, and the one number
-    that says whether the subscription business grew. A B2B SaaS at $240k MRR growing 35% a year
+    that says whether the subscription business grew. Copperline, at $240k MRR growing 35% a year,
     adds about $1,400 in an ordinary week, the difference between roughly $2,800 coming in and
     $1,400 going out, so one bad week on either side can turn it negative. Never read it without
     its parts: the same net figure can be strong sales hiding a churn problem.
   pitfalls:
     - Net new MRR must equal the change in the MRR snapshot from one Sunday to the next. When it doesn't, a movement is missing, usually a plan change or cancellation that never reached the event stream.
     - Currency revaluations and price migrations change MRR without a customer acting. Classify them on their own, or they land in expansion or contraction.
-    - Because it is the difference of two flows of similar size, it swings far more in percentage terms than any of its parts. Judge it in dollars against its own range, not as a percent change.
+    - Because it is the difference of two larger flows, it swings far more in percentage terms than any of its parts. Judge it in dollars against its own range, not as a percent change.
     - Reactivated customers belong with new MRR or on their own line, never netted against churn, or both flows look smaller than they are.
 
 reviewed_by: null

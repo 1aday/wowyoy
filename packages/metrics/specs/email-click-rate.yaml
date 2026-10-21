@@ -28,11 +28,11 @@ events:
         description: The campaign or automated flow message the click belongs to.
 
 numerator:
-  label: Recipients who clicked
+  label: Delivered emails clicked, one per recipient and campaign
   aggregate: unique_users
   event: email_clicked
 denominator:
-  label: Emails delivered
+  label: Emails delivered, one per recipient and campaign
   aggregate: count
   event: email_delivered
 
@@ -217,12 +217,12 @@ related: [sessions, new-visitor-share, repeat-purchase-rate, returning-customers
 prose:
   why_it_matters: >-
     Email is the cheapest repeat traffic a store has, and click rate is the first sign that a
-    list is tiring or a send is landing in spam. Opens stopped meaning much when Apple Mail
-    began pre-loading every email in 2021; clicks still need a person. On 240,000 deliveries a
-    week, half a point is 1,200 fewer people on the site from email.
+    list is tiring or a send is landing in spam. Opens stopped meaning much in 2021, when Apple's
+    Mail Privacy Protection began loading emails for people who never read them; clicks still need
+    a person. On 240,000 deliveries a week, half a point is 1,200 fewer clicked emails.
   pitfalls:
     - Use unique clicks over delivered emails. Total clicks over sends counts one keen reader five times and counts bounced addresses as failures.
-    - Corporate security scanners click every link in an email within seconds of delivery. Without bot filtering, business-heavy lists show click rates two or three times the real one.
+    - Corporate security scanners click every link in an email within seconds of delivery. Without bot filtering, lists with many business addresses show click rates well above the real one.
     - Clicks are counted in the week they happen, so a Sunday send's clicks fall partly into the next week. Compare weeks with similar send schedules.
     - Click-to-open rate is a different number. Apple Mail Privacy Protection inflates opens, so it falls for reasons that have nothing to do with the email.
 

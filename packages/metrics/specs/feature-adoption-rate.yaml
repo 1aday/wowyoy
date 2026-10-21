@@ -22,6 +22,11 @@ events:
   - name: "*"
     description: Any event a person sends; the active people the rate divides by.
     also_called: [All events, Any event, Active event]
+    properties:
+      - name: $os
+        description: The operating system, for splitting by platform.
+      - name: plan
+        description: The person's plan, for splitting by access.
 
 numerator:
   label: People who used the feature

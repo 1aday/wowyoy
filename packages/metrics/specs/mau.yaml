@@ -199,15 +199,15 @@ related: [dau, wau, stickiness, week-4-retention, resurrected-users]
 
 prose:
   why_it_matters: >-
-    MAU is the size of the audience a product reaches in a month, and the base every engagement
-    ratio divides by. Each week's figure shares three of its four weeks with the week before, so
+    MAU is the size of the audience a product reaches in a month, and the base that stickiness
+    divides by. Each week's figure shares three of its four weeks with the week before, so
     it moves slowly, and a drop usually started up to four weeks ago. A fixed 28-day window keeps
     every month the same length, so February doesn't look like a decline.
   pitfalls:
     - Calendar months run 28 to 31 days, which moves MAU by several percent on length alone. A fixed 28-day window removes that.
     - Consecutive weeks share three weeks of activity, so MAU looks smoother than the business is. Read WAU and new users to see what changed this week.
-    - One push or email blast can add tens of thousands of people who open once. They inflate MAU for four weeks and drag stickiness down.
-    - Logged-out visitors and signed-in people counted together double count anyone who signs in during the window.
+    - One push or email blast can add thousands of people who open once. They inflate MAU for four weeks and drag stickiness down.
+    - Logged-out visitors and signed-in people counted together double count anyone who signs in during the window, unless the anonymous id is merged into the person on sign-in.
 
 reviewed_by: null
 reviewed_at: null

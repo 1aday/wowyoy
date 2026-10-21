@@ -3,7 +3,6 @@ name: Discount rate
 aliases:
   - Discount percentage
   - Discounts as a share of sales
-  - Average discount rate
   - Promotional discount rate
 family: revenue
 kind: rate
@@ -42,11 +41,11 @@ noise:
   type: process
   min_denominator: 50
   volume_unit: orders a week
-  typical: 0.1
+  typical: 0.085
 
 example:
   business: store
-  level: 0.089
+  level: 0.085
   volume: 13300
   trend: 0.05
   season: 1
@@ -106,7 +105,7 @@ prose:
     Discount rate is the price of the growth a store buys with promotions, and it creeps as
     welcome codes, influencer codes, leaked codes and stacked offers each add a point nobody
     chose. At Northwind, 8.5% of $1.45M of gross sales is about $123,000 a week, and each extra
-    point costs $14,500 of margin a week.
+    point costs $14,500 of gross profit a week.
   pitfalls:
     - Markdowns made by lowering the product's price never show as discounts. A store that moves from codes to markdowns sees its discount rate fall while it gives away more.
     - Free-shipping offers aren't in subtotal or discount. Track their cost separately or the price of a free-shipping promotion stays invisible.

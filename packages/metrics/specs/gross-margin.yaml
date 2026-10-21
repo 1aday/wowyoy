@@ -46,7 +46,7 @@ noise:
 
 example:
   business: store
-  level: 0.532
+  level: 0.58
   volume: 13300
   trend: -0.02
 
@@ -101,10 +101,10 @@ related: [contribution-margin, discount-rate, net-revenue, aov, refund-rate]
 prose:
   why_it_matters: >-
     Gross margin decides how much of each dollar of revenue is left for marketing, shipping and
-    everything else. A store at 58% margin that slips to 55% has lost about 5% of what it has to
-    spend with revenue unchanged; at Northwind that is about $40,000 a week.
+    everything else. A store at 58% margin that slips to 55% has lost about 5% of its gross profit
+    with revenue unchanged; on Northwind's $1.33M of weekly order revenue that is about $40,000 a week.
   pitfalls:
-    - Cost of goods should be the landed cost per unit, the purchase price plus inbound freight and duties. Supplier price alone overstates margin by several points for imported goods.
+    - Cost of goods should be the landed cost per unit, the purchase price plus inbound freight and duties. Supplier price alone can overstate margin by several points for imported goods.
     - Products without a recorded cost count as free and pull margin up. New products are the usual culprit.
     - This spec matches each order's revenue to its own cost and leaves refunds out, because a refund event carries no cost. Read refund rate beside it.
     - Shipping, packaging and payment fees aren't cost of goods. Including them mixes gross margin with contribution margin and breaks comparisons with industry figures.

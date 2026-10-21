@@ -54,9 +54,9 @@ noise:
 
 example:
   business: store
-  level: 58
-  volume: 5200
-  trend: 0.12
+  level: 37
+  volume: 8100
+  trend: 0.06
 
 drivers:
   - id: data
@@ -122,10 +122,11 @@ prose:
   why_it_matters: >-
     nCAC is the price of growth for a store: what the ads cost for each customer who had never
     bought before. Returning customers are left out of the denominator, so it can't be flattered
-    by a loyal base the way MER can. At $58 per new customer and a $100 first order with 60%
-    gross margin, the first order alone pays the ad back with $2 to spare.
+    by a loyal base the way MER can. At Northwind's $37 per new customer, a first order of about
+    $95 at 58% gross margin earns about $55 of gross profit, so the first order alone pays the ad
+    back with about $18 to spare.
   pitfalls:
-    - Ad spend divided by all orders is cost per order, not nCAC. Including returning customers makes acquisition look two or three times cheaper on a store with a strong repeat base.
+    - Ad spend divided by all orders is cost per order, not nCAC. At Northwind, where about 38% of orders are repeat orders, cost per order is about $23 against an nCAC of $37.
     - All new customers are in the denominator, including those from organic search, email signups and word of mouth. A week with a press mention lowers nCAC without the ads doing anything.
     - First orders need one customer identity across guest and account checkouts. Matching by email misses people who buy again with a different address and makes them new twice.
     - Spend in one week buys customers over the next several. Weekly nCAC swings when budgets change fast; read a four-week view before cutting a channel.

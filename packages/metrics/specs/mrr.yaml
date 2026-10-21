@@ -8,8 +8,8 @@ kind: currency
 polarity: up-is-good
 
 definition:
-  one_line: The monthly value of every active subscription at the end of the week, with annual plans divided by twelve.
-  formula: Sum of active subscriptions' monthly amounts, measured Sunday 23:59 UTC
+  one_line: The monthly value of every paying subscription at the end of the week, with annual plans divided by twelve.
+  formula: Sum of active and past-due subscriptions' monthly amounts, measured Sunday 23:59 UTC
 
 events:
   - name: subscription_updated
@@ -206,7 +206,7 @@ drivers:
     metric: churned-mrr
     feed: stripe
     dropped:
-      check: Did cancellations, downgrades or failed renewals rise?
+      check: Did cancellations or failed renewals rise?
       yes: Churned MRR rises; failed payments or one large account explain most of it.
     spiked:
       check: Did churn fall unusually low, or did failed payments recover?
@@ -215,7 +215,7 @@ drivers:
     label: Billing calendar
     dropped:
       check: Did a cohort of annual plans come up for renewal this week?
-      yes: A cluster of renewals dated one year after a big signup month.
+      yes: Cancellations cluster on renewal dates one year after a big signup month.
     spiked:
       check: Is a migration or a currency revaluation changing amounts without customers acting?
       yes: Many subscriptions change amount on the same day with no plan change.
@@ -231,7 +231,7 @@ prose:
     to week, which is exactly why a small move matters. Read its flows to see why it moved;
     read MRR itself to see whether the business is growing.
   pitfalls:
-    - Counting trials or unpaid invoices as MRR inflates it until they lapse. Count only subscriptions that pay.
+    - Counting trials as MRR inflates it until they lapse. Count only subscriptions that bill; past-due ones stay in until they are canceled, so a wave of failed payments shows up weeks later.
     - Annual plans divided by twelve smooth revenue; booking them in full the month they are paid makes MRR spike and fall back.
     - Discounts and coupons belong in MRR at the discounted amount, or MRR overstates what customers pay.
     - A week with a currency revaluation or a price migration moves MRR with no change in customers. Note it on the week.
