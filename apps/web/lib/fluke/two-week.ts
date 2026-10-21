@@ -61,7 +61,7 @@ export const twoWeekPresets: Record<TwoWeekKind, TwoWeekValues> = {
   average: { kind: "average", volume: 1300, before: 31.7, after: 33.2 },
 }
 
-export const TWO_WEEK_LIMITS = { volume: 1e9, value: 1e12, cv: [0.05, 5] as const }
+export const TWO_WEEK_LIMITS = { volume: 1e9, value: 1e12, cv: [0.05, 20] as const }
 
 /** What is wrong with these inputs, in a sentence, or null when they can be tested. */
 export function validateTwoWeek(v: TwoWeekValues): string | null {
@@ -77,7 +77,7 @@ export function validateTwoWeek(v: TwoWeekValues): string | null {
     if (!Number.isInteger(v.volume) || v.volume < 1 || v.volume > TWO_WEEK_LIMITS.volume)
       return "Volume is a whole number a week, 1 or more."
   }
-  if (v.cv != null && !(v.cv >= TWO_WEEK_LIMITS.cv[0] && v.cv <= TWO_WEEK_LIMITS.cv[1])) return "cv is between 0.05 and 5."
+  if (v.cv != null && !(v.cv >= TWO_WEEK_LIMITS.cv[0] && v.cv <= TWO_WEEK_LIMITS.cv[1])) return `cv is between ${TWO_WEEK_LIMITS.cv[0]} and ${TWO_WEEK_LIMITS.cv[1]}.`
   return null
 }
 

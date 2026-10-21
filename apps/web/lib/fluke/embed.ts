@@ -3,7 +3,7 @@ import { FLUKE_HISTORY, flukeTest } from "@workspace/metrics/fluke"
 import { samplingFloor, twoWeekKindFor } from "@workspace/metrics/noise"
 import type { MetricSpec } from "@workspace/metrics/spec"
 import type { WhyDirection } from "@workspace/compiler/site"
-import { formatTwoWeekValue, type TwoWeekValues } from "./two-week"
+import { formatTwoWeekValue, runTwoWeek, type TwoWeekValues } from "./two-week"
 
 /** The fields of a spec the embed reads. */
 export type EmbedSpec = Pick<MetricSpec, "id" | "name" | "kind" | "noise" | "example" | "polarity">
@@ -58,16 +58,29 @@ export function embedPrefill(spec: EmbedSpec, direction?: WhyDirection, end?: st
     const volume = Math.max(spec.noise.min_denominator, Math.round(kind === "count" ? level : spec.example.volume))
     const floor = (samplingFloor(spec.noise.type, level, kind === "count" ? level : volume, spec.noise.cv) ?? 0) * f
     const before = nice(level * f, floor)
-    let after = nice(before + sign * (direction ? 1.3 : 0.5) * floor, floor)
-    if (kind === "rate") after = Math.min(100, Math.max(0, after))
-    if (kind !== "rate") after = Math.max(0, after)
-    const values: TwoWeekValues = {
-      kind,
-      before,
-      after,
-      ...(kind === "count" ? {} : { volume: nice(volume, volume / 10) }),
-      ...(spec.noise.cv && (kind === "amount" || kind === "average") ? { cv: spec.noise.cv } : {}),
+    const fill = (move: number): TwoWeekValues => {
+      let after = nice(before + sign * move * floor, floor)
+      after = kind === "rate" ? Math.min(100, Math.max(0, after)) : Math.max(0, after)
+      return {
+        kind,
+        before,
+        after,
+        ...(kind === "count" ? {} : { volume: nice(volume, volume / 10) }),
+        ...(spec.noise.cv && (kind === "amount" || kind === "average") ? { cv: spec.noise.cv } : {}),
+      }
     }
+    // The floor is taken at the midpoint of the two weeks, and a low week can fall under the minimum volume,
+    // so a fixed multiple can miss: try wider moves, then narrower ones, until the call is the one the page means.
+    const want = direction ? "real" : "noise"
+    const call = (v: TwoWeekValues) => {
+      const r = runTwoWeek(v)
+      return "error" in r ? null : r.call
+    }
+    const start = direction ? 1.3 : 0.5
+    const moves = direction
+      ? [...Array.from({ length: 30 }, (_, i) => start * 1.15 ** i), ...Array.from({ length: 12 }, (_, i) => start * 0.95 ** (i + 1))]
+      : Array.from({ length: 30 }, (_, i) => start * 0.8 ** i)
+    const values = moves.map(fill).find((v) => v.after !== v.before && call(v) === want) ?? fill(start)
     const unit = spec.noise.volume_unit
     return { mode: "two-weeks", values, volumeLabel: sentence(unit), volumeUnit: unit }
   }

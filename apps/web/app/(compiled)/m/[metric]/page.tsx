@@ -19,7 +19,7 @@ import { bandModel } from "@/lib/standard/band-model"
 import { formatSpecValue } from "@/lib/standard/format"
 import { jsonLdHtml, metricJsonLd } from "@/lib/standard/jsonld"
 import { queryNotes, resolveMetric, treeDrivers, whyLinks } from "@/lib/standard/pages"
-import { businessName, kindLabel, lowerName, noiseLabel, noiseSentence, numberWord, processSwing, trendView, verdictReason, whyQuestion } from "@/lib/standard/spec-view"
+import { businessName, kindLabel, lowerName, noiseLabel, noiseSentence, numberWord, processSwing, trendView, whyQuestion } from "@/lib/standard/spec-view"
 
 type Params = Promise<{ metric: string }>
 
@@ -105,7 +105,7 @@ export default async function MetricPage({ params }: { params: Params }) {
         note={`Fictional data for ${businessName(spec).name}, ${businessName(spec).what}. Never a real customer.`}
         title={<ExampleTitle spec={spec} trend={trend} />}
       >
-        {trend.verdict && <p className="-mt-2 mb-6 max-w-2xl text-[15px] leading-relaxed text-muted-foreground">{verdictReason(trend.verdict)}</p>}
+        {trend.verdict && <p className="-mt-2 mb-6 max-w-2xl text-[15px] leading-relaxed text-muted-foreground">{trend.verdict.reason}</p>}
         <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
           <div className="label-mono mb-4">Example data · {businessName(spec).name}</div>
           <SpecTrendChart spec={spec} points={trend.points} real={trend.verdict?.call === "real"} name={spec.name} />

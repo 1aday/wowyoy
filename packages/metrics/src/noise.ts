@@ -104,7 +104,8 @@ export interface NoiseVerdict {
   oneInWeeks: number | null
 }
 
-const fmtOne = (n: number) => (n === Infinity ? "rarely" : `about once every ${n} weeks`)
+const fmtOne = (n: number) =>
+  n === Infinity ? "rarely" : n <= 1 ? "most weeks" : n === 2 ? "about every other week" : `about once every ${n.toLocaleString("en-US")} weeks`
 
 /**
  * The one verdict function. `values` is the weekly series, oldest first, ending at the week judged.
@@ -213,12 +214,13 @@ export function twoWeekKindFor(type: NoiseType): TwoWeekKind | null {
  * Only the sampling floor can be tested, so the page says so.
  */
 export function twoWeekTest(input: TwoWeekInput): NoiseVerdict | null {
+  // Counts and sums of amounts need 10 events a week; rates and averages need 30 before the normal approximation holds.
   const { kind, before, after } = input
   if (![before, after].every(Number.isFinite)) return null
   if (kind === "rate" && (before < 0 || before > 1 || after < 0 || after > 1)) return null
   const volume = kind === "count" ? Math.max(0, (before + after) / 2) : input.volume
   if (volume == null || !(volume > 0)) return null
-  return judge([before, after], { type: twoWeekNoise[kind], min_denominator: kind === "count" ? 10 : 30, cv: input.cv ?? 1 }, [
+  return judge([before, after], { type: twoWeekNoise[kind], min_denominator: kind === "count" || kind === "amount" ? 10 : 30, cv: input.cv ?? 1 }, [
     kind === "count" ? before : volume,
     kind === "count" ? after : volume,
   ])
