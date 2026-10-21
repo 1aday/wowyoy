@@ -1,0 +1,113 @@
+id: new-visitor-share
+name: New visitor share
+aliases:
+  - New visitor rate
+  - Percent new visitors
+  - New vs returning visitors
+family: traffic
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of the week's unique visitors who had never viewed a page on the site before.
+  formula: Visitors whose first ever page view is this week ÷ unique visitors this week
+
+events:
+  - name: $pageview
+    description: One page load or client-side route change, captured in the browser.
+    also_called: [page_view, Page Viewed, page]
+    properties:
+      - name: utm_source
+        description: The campaign source from the landing URL (google, facebook, newsletter).
+      - name: $referring_domain
+        description: The domain the visitor came from, or $direct when there was none.
+
+numerator:
+  label: First-time visitors
+  aggregate: first_time_users
+  event: $pageview
+denominator:
+  label: Unique visitors
+  aggregate: unique_users
+  event: $pageview
+
+noise:
+  type: binomial
+  min_denominator: 200
+  volume_unit: visitors a week
+  typical: 0.65
+  reference_volumes: [1000, 5000, 25000, 100000]
+
+example:
+  business: store
+  level: 0.64
+  volume: 390000
+  trend: -0.03
+
+drivers:
+  - id: identity
+    label: Cookies and identity
+    breakdown: $browser
+    dropped:
+      check: Did a login, identity merge or tracking fix start recognising people who used to look new?
+      yes: The share falls on the day of the change while sessions and orders hold.
+    spiked:
+      check: Did cookies start resetting, from a consent change, a new domain or a browser update?
+      yes: The share jumps in one browser, sessions per visitor fall, and returning customers suddenly look new.
+  - id: calendar
+    label: Calendar
+    feed: shopping
+    dropped:
+      check: Did a gifting or sale period end, leaving mostly regulars?
+      yes: The same weeks last year show the same fall after the event.
+    spiked:
+      check: Is this a gifting or sale week that brings people who don't usually visit?
+      yes: The same week last year shows the same rise.
+  - id: prospecting
+    label: Prospecting spend
+    metric: paid-sessions
+    feed: ad-platforms
+    dropped:
+      check: Did prospecting campaigns pause or shift budget to retargeting?
+      yes: Paid sessions fall, or their mix moves toward retargeting audiences.
+    spiked:
+      check: Did a new prospecting campaign or a budget increase start?
+      yes: Paid sessions rise from one platform and most of them are first visits.
+  - id: email
+    label: Email and returning traffic
+    metric: email-click-rate
+    dropped:
+      check: Did a big email or SMS send bring regulars back, diluting the share?
+      yes: Returning visitors jump on send days while first-time visitors hold.
+    spiked:
+      check: Did the usual emails go out less, so fewer regulars came back?
+      yes: Email-driven sessions fall while first-time visitors hold.
+  - id: press-and-referrals
+    label: Press and referrals
+    metric: referral-sessions
+    dropped:
+      check: Did a referral source that sends new people dry up?
+      yes: One referring domain that sent first visits has stopped.
+    spiked:
+      check: Did a press piece, creator post or viral link send a wave of new people?
+      yes: One referring domain explains most of the first visits and fades within days.
+
+diagnose_order: [identity, calendar, prospecting, email, press-and-referrals]
+
+related: [unique-visitors, sessions, returning-customers, new-customers, paid-sessions]
+
+prose:
+  why_it_matters: >-
+    A store grows only if new people keep finding it, and this share shows whether this week's
+    traffic is reach or the same regulars coming back. It also explains other moves: new
+    visitors convert at a fraction of returning ones, so when the share jumps from 70% to 78%,
+    expect store conversion to dip with no change to the site.
+  pitfalls:
+    - A new visitor is new to this browser's cookie. Cleared cookies, private browsing, a second device and Safari's seven-day cookie limit all make returning people look new, so the share runs high.
+    - A share can rise with no new people at all, when returning visitors fall. Read it next to the count of first-time visitors.
+    - The first-visit test needs the full history. A query limited to recent months calls everyone seen before that window new.
+    - Changing the domain, the analytics project or the cookie name resets everyone to new for months.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

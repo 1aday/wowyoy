@@ -1,0 +1,198 @@
+id: paid-sessions
+name: Paid sessions
+aliases:
+  - Paid traffic
+  - Paid visits
+  - Paid media sessions
+family: traffic
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: Visits that arrived from a paid ad, judged by the campaign tag or ad click id on the first page of the visit.
+  formula: Sessions whose first page view has a paid utm_medium (cpc, cpm, paid_social, display) or a Google or Microsoft ad click id
+
+events:
+  - name: $pageview
+    description: One page load or client-side route change, captured in the browser.
+    also_called: [page_view, Page Viewed, page]
+    properties:
+      - name: $session_id
+        description: Set by the analytics SDK; the session's first page view decides its channel.
+      - name: utm_medium
+        description: The campaign medium from the landing URL. Paid when it contains "cp", starts with "paid", or is ppc, retargeting, display or banner.
+      - name: utm_source
+        description: The platform that sent the click (google, facebook, tiktok).
+      - name: gclid
+        description: Google Ads click id, added by auto-tagging. Also gbraid, wbraid, and msclkid for Microsoft Ads.
+
+numerator:
+  label: Paid sessions
+  aggregate: unique_sessions
+  event: $pageview
+  where:
+    - property: utm_medium
+      op: in
+      value: [cpc, ppc, cpm, paid, paid_search, paid_social, paidsocial, display, retargeting]
+
+queries:
+  hogql: |-
+    -- Paid sessions per week: sessions whose first page view carries a paid utm_medium (GA4's paid rule) or an ad click id.
+    SELECT week, count() AS value
+    FROM (
+      SELECT
+        $session_id AS session_id,
+        toMonday(min(timestamp)) AS week,
+        argMin(lower(coalesce(properties.utm_medium, '')), timestamp) AS medium,
+        argMin(coalesce(properties.gclid, properties.gbraid, properties.wbraid, properties.msclkid, '') != '', timestamp) AS ad_click
+      FROM events
+      WHERE event = '$pageview'
+        AND $session_id IS NOT NULL
+        AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
+        AND timestamp < toStartOfWeek(now(), 1)
+      GROUP BY session_id
+    )
+    WHERE (match(medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
+    GROUP BY week
+    ORDER BY week
+  postgres: |-
+    -- Paid sessions per week: sessions whose first page view carries a paid utm_medium (GA4's paid rule) or an ad click id.
+    WITH entries AS (
+      SELECT DISTINCT ON (session_id)
+        session_id,
+        date_trunc('week', occurred_at)::date AS week,
+        lower(coalesce(properties->>'utm_medium', '')) AS medium,
+        coalesce(properties->>'gclid', properties->>'gbraid', properties->>'wbraid', properties->>'msclkid', '') <> '' AS ad_click
+      FROM events
+      WHERE event_name = '$pageview'
+        AND session_id IS NOT NULL
+        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
+        AND occurred_at < date_trunc('week', now())
+      ORDER BY session_id, occurred_at
+    )
+    SELECT week, count(*) AS value
+    FROM entries
+    WHERE (medium ~ '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$' OR ad_click)
+    GROUP BY week
+    ORDER BY week;
+  bigquery: |-
+    -- Paid sessions per week: sessions whose first page view carries a paid utm_medium (GA4's paid rule) or an ad click id.
+    WITH entries AS (
+      SELECT
+        session_id,
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
+        lower(coalesce(JSON_VALUE(properties, '$.utm_medium'), '')) AS medium,
+        coalesce(JSON_VALUE(properties, '$.gclid'), JSON_VALUE(properties, '$.gbraid'), JSON_VALUE(properties, '$.wbraid'), JSON_VALUE(properties, '$.msclkid'), '') <> '' AS ad_click
+      FROM events
+      WHERE event_name = '$pageview'
+        AND session_id IS NOT NULL
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY occurred_at) = 1
+    )
+    SELECT week, count(*) AS value
+    FROM entries
+    WHERE (REGEXP_CONTAINS(medium, r'^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
+    GROUP BY week
+    ORDER BY week;
+  snowflake: |-
+    -- Paid sessions per week: sessions whose first page view carries a paid utm_medium (GA4's paid rule) or an ad click id.
+    -- Assumes WEEK_START = 1 (Monday).
+    WITH entries AS (
+      SELECT
+        session_id,
+        DATE_TRUNC('week', occurred_at)::date AS week,
+        lower(coalesce(properties:"utm_medium"::string, '')) AS medium,
+        coalesce(properties:"gclid"::string, properties:"gbraid"::string, properties:"wbraid"::string, properties:"msclkid"::string, '') <> '' AS ad_click
+      FROM events
+      WHERE event_name = '$pageview'
+        AND session_id IS NOT NULL
+        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY occurred_at) = 1
+    )
+    SELECT week, count(*) AS value
+    FROM entries
+    WHERE (REGEXP_LIKE(medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
+    GROUP BY week
+    ORDER BY week;
+
+noise:
+  type: poisson
+  min_denominator: 100
+  volume_unit: paid sessions a week
+  typical: 15000
+  reference_volumes: [1000, 5000, 25000, 100000]
+
+example:
+  business: store
+  level: 180000
+  volume: 180000
+  trend: 0.2
+
+drivers:
+  - id: tagging
+    label: Campaign tags and click ids
+    dropped:
+      check: Did a new campaign, landing page or redirect lose its UTM tags or click id?
+      yes: Organic or direct sessions rise by about as much as paid falls, from the day the campaign or redirect changed.
+    spiked:
+      check: Did someone tag non-paid links as paid, such as a newsletter or an influencer link with utm_medium=cpc?
+      yes: The new paid sessions come from a source with no spend behind it.
+  - id: spend
+    label: Ad spend
+    metric: ad-spend
+    feed: ad-platforms
+    dropped:
+      check: Did spend fall, from a paused campaign, a budget cut, a declined card or a rejected ad?
+      yes: Spend on one platform falls by about the same share as its paid sessions.
+    spiked:
+      check: Did a budget increase or a new campaign start?
+      yes: Spend rises on one platform by about the share paid sessions did; check that conversion held.
+  - id: cpc
+    label: Cost per click
+    metric: cpc
+    dropped:
+      check: With spend steady, did each click get more expensive?
+      yes: CPC rises on one platform while spend holds, so the same budget buys fewer clicks.
+    spiked:
+      check: With spend steady, did clicks get cheaper?
+      yes: CPC falls; check whether a cheap placement such as Audience Network or display is buying low-quality clicks.
+  - id: invalid-clicks
+    label: Bots and invalid clicks
+    breakdown: $geoip_country_code
+    dropped:
+      check: Did the platform start filtering a bot source that used to click?
+      yes: Clicks fall in one country or placement while orders hold.
+    spiked:
+      check: Is a bot, click farm or an accidental-click placement inflating visits?
+      yes: The new sessions bounce at once, come from one placement, country or app, and never order.
+  - id: landing
+    label: Landing page availability
+    feed: cloudflare
+    dropped:
+      check: Did the landing page error or redirect, so clicks were paid for but never recorded as visits?
+      yes: Platform clicks hold while recorded paid sessions fall in the hours of an incident.
+    spiked:
+      check: Was last week depressed by a landing-page outage?
+      yes: Last week shows the gap; this week is back to its usual level.
+
+diagnose_order: [tagging, spend, cpc, invalid-clicks, landing]
+
+related: [ad-spend, cpc, ctr, paid-conversion-rate, sessions, organic-sessions]
+
+prose:
+  why_it_matters: >-
+    Paid sessions are the traffic the store buys, so they should move with spend and almost
+    nothing else. When they don't, either the price of a click changed or the tracking did.
+    Ad platforms report clicks, not visits; on most stores 10 to 25% of paid clicks never
+    become a recorded session, and that gap is worth watching on its own.
+  pitfalls:
+    - Clicks in the ad platform and sessions in analytics never match. Slow pages, consent banners, ad blockers and accidental taps on mobile all lose visits between the two.
+    - Google Ads auto-tagging adds a gclid but no UTM tags. Checking only utm_medium puts those clicks in organic search.
+    - The classification is by first page view. A visitor who clicks an ad, leaves and returns later from a bookmark is paid once and direct the second time.
+    - Tags are case sensitive in most tools. CPC, Cpc and cpc split one channel three ways unless the query lowercases them, as this one does.
+
+reviewed_by: null
+reviewed_at: null
+version: 1
