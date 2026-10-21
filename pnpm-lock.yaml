@@ -29,6 +29,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@number-flow/react':
+        specifier: ^0.6.2
+        version: 0.6.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@workspace/compiler':
         specifier: workspace:*
         version: link:../../packages/compiler
