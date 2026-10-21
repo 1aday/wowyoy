@@ -247,9 +247,8 @@ related: [repeat-purchase-rate, customer-lifetime-value, aov, active-customers, 
 prose:
   why_it_matters: >-
     Purchase frequency is half of what a customer is worth: a year of revenue per customer is order
-    value times how often they order. Most stores sit between 1.2 and 2 orders a year, so moving
-    from 1.40 to 1.50 lifts what each customer is worth by 7% without spending a dollar more on
-    acquisition. It changes slowly; a sudden weekly jump is usually a change in how orders are
+    value times how often they order. Moving from 1.40 to 1.50 orders a year lifts what each customer
+    is worth by about 7% without spending a dollar more on acquisition. It changes slowly; a sudden weekly jump is usually a change in how orders are
     recorded.
   pitfalls:
     - Splitting one purchase into several orders, for pre-orders or separate shipments, raises frequency without anyone buying more. Count orders the way the customer placed them.

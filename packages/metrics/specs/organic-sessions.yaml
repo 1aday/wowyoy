@@ -209,7 +209,7 @@ drivers:
       yes: The same week last year shows the same rise.
   - id: brand-demand
     label: Branded searches
-    metric: paid-sessions
+    metric: ad-spend
     dropped:
       check: Did advertising, press or a launch that drove people to search the brand name stop?
       yes: Visits landing on the home page from search fall while product-page search visits hold.
@@ -238,9 +238,9 @@ prose:
     after one without changing a thing.
   pitfalls:
     - Google Ads auto-tagging adds a gclid but no UTM tags. Without checking the click id, paid search clicks land in organic and organic looks better than it is.
-    - Organic here means search engines only. Unpaid social posts, emails and links from other sites are separate channels, and GA4's "Organic" groups differ by tool.
-    - Visits from ChatGPT, Perplexity and other AI assistants arrive as referrals, not search. They are the fastest-growing source of non-paid visits for many stores; read them in referral sessions.
-    - Most search referrers carry no keyword, so this number can't tell branded from unbranded searches. Use Search Console for that split, and expect its clicks to differ from sessions by 10 to 20%.
+    - Organic here means search engines only, GA4's Organic Search group. Unpaid social posts, emails and links from other sites are separate channels, and GA4's Organic Social, Organic Video and Organic Shopping groups are not included.
+    - Visits from ChatGPT, Perplexity and other AI assistants arrive as referrals, not search, even when they answer what used to be a search. Read them in referral sessions.
+    - Search engines don't pass the keyword, so this number can't tell branded from unbranded searches. Use Search Console for that split, and expect its clicks never to match sessions exactly, because consent banners, ad blockers and slow pages lose some visits.
 
 reviewed_by: null
 reviewed_at: null

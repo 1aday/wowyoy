@@ -48,7 +48,7 @@ noise:
 example:
   business: store
   level: 0.38
-  volume: 13000
+  volume: 13300
   trend: 0.03
   season: -0.5
 
@@ -106,7 +106,7 @@ prose:
   why_it_matters: >-
     Repeat order share says how much of a week's demand the store didn't have to buy. Because it is
     a share, it moves when either side moves: a strong acquisition week lowers it with no change in
-    loyalty. At 13,000 orders a week a move of 1.2 points is still chance; past that, check which
+    loyalty. At 13,300 orders a week a move of up to about 1.2 points can be chance; past that, check which
     side changed before calling it retention.
   pitfalls:
     - A share falls when new customers rise. Read it with the new and returning customer counts before calling it a loyalty problem.

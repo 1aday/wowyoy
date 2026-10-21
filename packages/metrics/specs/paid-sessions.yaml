@@ -225,8 +225,8 @@ prose:
   why_it_matters: >-
     Paid sessions are the traffic the store buys, so they should move with spend and almost
     nothing else. When they don't, either the price of a click changed or the tracking did.
-    Ad platforms report clicks, not visits; on most stores 10 to 25% of paid clicks never
-    become a recorded session, and that gap is worth watching on its own.
+    Ad platforms report clicks, not visits; some paid clicks never become a recorded session,
+    and a sudden widening of that gap is worth watching on its own.
   pitfalls:
     - Clicks in the ad platform and sessions in analytics never match. Slow pages, consent banners, ad blockers and accidental taps on mobile all lose visits between the two.
     - Google Ads auto-tagging adds a gclid but no UTM tags. Checking only utm_medium puts those clicks in organic search.

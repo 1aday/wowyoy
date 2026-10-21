@@ -215,7 +215,7 @@ prose:
     Every failed payment is a shopper who had already decided to buy and typed in a card. A fall
     is rarely about the shopper; it is a processor incident, a fraud rule or a bot testing stolen
     cards. At Northwind, with about 14,000 attempts a week, one point is 140 failed attempts a
-    week, most of them from people standing at the till.
+    week, most of them from people who were already at checkout.
   pitfalls:
     - Retries count as attempts, so a shopper who is declined twice and then pays is one success in three. Read checkout conversion beside it to see what shoppers experienced.
     - Card-testing bots can send thousands of failed attempts in an hour and pull a week down ten points with no real customer affected. Split by session or IP before reacting.

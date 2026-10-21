@@ -14,8 +14,8 @@ definition:
 
 events:
   - name: subscription_started
-    description: A subscription's first paid period began; the first invoice was paid, not the trial start.
-    also_called: [Subscription Started, subscription_created, customer.subscription.created]
+    description: A subscription's first paid period began, sent by the billing system when the first payment succeeds; not the trial start.
+    also_called: [Subscription Started, subscription_activated, invoice.paid (first)]
     properties:
       - name: subscription_id
         description: The billing system's subscription id.
@@ -41,7 +41,7 @@ noise:
 example:
   business: saas
   level: 1920
-  volume: 17
+  volume: 29
   trend: 0.3
 
 drivers:
@@ -105,9 +105,9 @@ related: [mrr, net-new-mrr, new-paid-accounts, trial-conversion-rate, arpa]
 
 prose:
   why_it_matters: >-
-    New MRR is the inflow from customers paying for the first time, and for most young SaaS
-    companies it is the largest of the four MRR movements. It is also the noisiest: at 17 new
-    subscriptions a week, chance alone can move it by about 90% week to week, so one large deal
+    New MRR is the inflow from customers paying for the first time, and for a growing SaaS company
+    it is usually the largest of the four MRR movements. It is also the noisiest: at 29 new
+    subscriptions a week, chance alone can move it by about 70% week to week, so one large deal
     looks like a breakout. Read it over four weeks, split into how many accounts started and
     what each one pays.
   pitfalls:

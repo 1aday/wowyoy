@@ -6,7 +6,7 @@ aliases:
   - New vs returning revenue
 family: customers
 kind: rate
-polarity: up-is-good
+polarity: down-is-good
 
 definition:
   one_line: The share of this week's order revenue that came from customers' first orders.
@@ -51,7 +51,7 @@ noise:
 example:
   business: store
   level: 0.58
-  volume: 13000
+  volume: 13300
   trend: -0.02
   season: 0.5
 
@@ -108,12 +108,12 @@ related: [new-customers, repeat-order-share, returning-customers, net-revenue, n
 prose:
   why_it_matters: >-
     New customer revenue share splits revenue into what the store bought this week and what it kept.
-    A store with 80% of revenue from first orders is renting its growth from ad platforms, and its
-    revenue falls as soon as spend does; at Northwind the share is about 58%. Read it with repeat
-    order share, its mirror in order counts.
+    A store that earns most of its revenue from first orders depends on acquisition spend for its
+    growth, and its revenue falls when spend does; at Northwind the share is about 58%. Read it with
+    repeat order share, its mirror in order counts.
   pitfalls:
     - First orders are often smaller because of welcome discounts, so this share runs a few points below the share of orders from new customers. Both are right; don't mix them.
-    - A rise is good only if returning revenue held, because the share also climbs when existing customers stop buying.
+    - The share moves when either side does. It climbs when existing customers stop buying and falls when acquisition stalls, so check new and returning customers before calling a move good or bad.
     - It is a share of order totals before refunds, which can't be split by first or repeat order in the week they are issued. A sale week with heavy returns overstates it.
     - Orders without the first-order flag are left out of both sides. If many lack it, fix the tracking before reading the share.
 

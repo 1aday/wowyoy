@@ -16,7 +16,7 @@ definition:
 events:
   - name: $pageview
     description: A page loaded in the browser. Sessions are the distinct session ids across page views.
-    also_called: [page_view, Page Viewed, page_viewed]
+    also_called: [page_view, Page Viewed, page, page_viewed]
     properties:
       - name: $session_id
         description: The browser session; a new one starts after 30 minutes without activity.

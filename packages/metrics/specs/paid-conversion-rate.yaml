@@ -292,8 +292,8 @@ prose:
     platform, controls. With cost per click fixed by the auction, it sets what a paid order
     costs: at $1.25 a click, 2.1% conversion is $60 of media per order, and 1.7% is $74.
   pitfalls:
-    - Same-visit attribution misses buyers who click an ad and come back later to buy. Many stores see half their ad-driven orders arrive this way, so this rate reads lower than the platforms' own.
-    - Prospecting and retargeting convert several times apart. A move in the blended rate is usually a mix change; split by source and campaign first.
+    - Same-visit attribution misses buyers who click an ad and come back later to buy, often a large share of ad-driven orders, so this rate reads lower than the platforms' own, which credit orders days after the click.
+    - Prospecting and retargeting often convert several times apart. A move in the blended rate is usually a mix change; split by source and campaign first.
     - Server-side order events need the browser's session id passed through checkout, or orders can't be matched to the visit that brought them.
     - Google Ads auto-tagged clicks carry a gclid and no UTM tags. This query counts the click id; a tag-only rule drops those sessions from the denominator.
 

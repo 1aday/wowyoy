@@ -14,8 +14,8 @@ definition:
 
 events:
   - name: subscription_started
-    description: The first paid period of a subscription, sent by the billing system when the first payment succeeds.
-    also_called: [Subscription Started, customer.subscription.created, invoice.paid (first)]
+    description: A subscription's first paid period began, sent by the billing system when the first payment succeeds; not the trial start.
+    also_called: [Subscription Started, subscription_activated, invoice.paid (first)]
     properties:
       - name: subscription_id
         description: The billing system's subscription id.
@@ -112,6 +112,7 @@ prose:
     - Reactivations are not new accounts. Counting every subscription start inflates the number after a win-back campaign, so this spec counts first subscriptions only.
     - Sales-led deals close at month and quarter end, so a weekly count looks lumpy for reasons nobody needs to fix.
     - A billing migration or plan restructure can fire subscription events for existing customers. Check the count against the billing system after any migration.
+    - First is judged from the subscription history the analytics project holds. A customer who paid before tracking began and returns now counts as new, so backfill past subscriptions from billing when tracking starts.
     - Count accounts, not users. When several teammates can buy for one workspace, identify the account as the paying person or group, or one purchase counts twice.
 
 reviewed_by: null

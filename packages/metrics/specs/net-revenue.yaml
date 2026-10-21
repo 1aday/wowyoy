@@ -9,8 +9,8 @@ kind: currency
 polarity: up-is-good
 
 definition:
-  one_line: Order revenue after discounts and refunds, before tax and shipping, for orders paid this week.
-  formula: Sum of order totals − refunds issued, excluding tax and shipping
+  one_line: Order revenue after discounts from orders paid this week, minus refunds issued this week, before tax and shipping.
+  formula: Sum of order totals after discounts − refunds issued in the week, both excluding tax and shipping
 
 events:
   - name: order_completed
@@ -23,8 +23,10 @@ events:
         description: Unique per order; deduplicates retries and reloads.
   - name: order_refunded
     description: A refund issued against an earlier order, full or partial.
-    also_called: [refund, Order Refunded]
+    also_called: [refund, Order Refunded, charge.refunded]
     properties:
+      - name: order_id
+        description: The order refunded.
       - name: amount
         description: The refunded amount, excluding tax and shipping.
 
@@ -44,16 +46,24 @@ noise:
   cv: 0.9
   min_denominator: 50
   volume_unit: orders a week
-  typical: 400000
+  typical: 260000
 
 example:
   business: store
-  level: 1300000
-  volume: 13000
+  level: 1290000
+  volume: 13300
   trend: 0.2
   season: 1
 
 drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Did order events stop arriving from one checkout, app or country, or did total change meaning?
+      yes: The store's own sales report holds while recorded revenue falls from one day.
+    spiked:
+      check: Are orders recorded twice, test orders included, or totals arriving in another currency or with tax added?
+      yes: Recorded revenue exceeds the store's sales report, or the same order_id appears more than once.
   - id: orders
     label: Orders
     metric: orders
@@ -110,7 +120,7 @@ drivers:
       check: Is this week a sale, holiday or payday week?
       yes: The same week last year shows the same jump once aligned on the event.
 
-diagnose_order: [calendar, orders, order-value, traffic, conversion, refunds]
+diagnose_order: [tracking, calendar, orders, order-value, refunds, traffic, conversion]
 
 related: [orders, aov, conversion-rate, gross-sales, refund-rate]
 
@@ -119,12 +129,12 @@ prose:
     Revenue is the number everyone reads first, which is why it is the worst number to act on
     alone. It is orders times order value, and orders are traffic times conversion; a move in
     revenue is only useful once you know which of those moved. Most weeks, nothing did, and the
-    honest answer is that the change is the ordinary wobble of a few thousand orders.
+    honest answer is that the change is the ordinary wobble of thousands of orders of different sizes.
   pitfalls:
-    - Booking revenue when the order is placed but refunds when they are issued mixes two weeks. Report both by the week they happen and say so.
+    - Refunds are subtracted in the week they are issued, not the week of the order they belong to, as in Shopify's net sales. A big sale week's returns land in the weeks after it.
     - Including tax and shipping makes revenue move with tax rules and carrier prices you don't control.
     - A few very large orders can move a small store's week by 10% or more. Check the order count before the total.
-    - Revenue in several currencies needs one fixed exchange rate per week, or currency moves look like sales.
+    - Revenue in several currencies needs a constant exchange rate across the weeks being compared, or currency moves look like sales.
 
 reviewed_by: null
 reviewed_at: null

@@ -255,7 +255,7 @@ drivers:
   - id: ai-assistants
     label: AI assistants
     dropped:
-      check: Did visits from chatgpt.com, perplexity.ai, gemini.google.com or copilot fall?
+      check: Did visits from chatgpt.com, perplexity.ai, gemini.google.com or copilot.microsoft.com fall?
       yes: The AI assistant referrers send fewer visits, often after a model or citation change on their side.
     spiked:
       check: Are AI assistants citing the store more often?

@@ -57,7 +57,7 @@ drivers:
       yes: Page views fall on the release day while sessions, product views and orders hold.
     spiked:
       check: Is a page view firing twice, from two tags or a router that reports every route change twice?
-      yes: Page views per session jump by close to one overnight while orders don't move.
+      yes: Pages per session rise by about one (a second tag on page load) or nearly double (every route change sent twice) overnight while orders don't move.
   - id: bounce
     label: One-page visits
     metric: bounce-rate

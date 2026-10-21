@@ -14,8 +14,8 @@ definition:
 
 events:
   - name: subscription_started
-    description: A subscription's first paid period began.
-    also_called: [Subscription Started, subscription_created]
+    description: A subscription's first paid period began, sent by the billing system when the first payment succeeds; not the trial start.
+    also_called: [Subscription Started, subscription_activated, invoice.paid (first)]
     properties:
       - name: mrr
         description: The new subscription's monthly amount.

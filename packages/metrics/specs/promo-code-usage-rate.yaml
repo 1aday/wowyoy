@@ -10,7 +10,7 @@ kind: rate
 polarity: down-is-good
 
 definition:
-  one_line: The share of paid orders placed with a discount code, the part of demand that only bought at a lower price.
+  one_line: The share of this week's paid orders placed with a discount code.
   formula: Paid orders with a discount code ÷ paid orders
 
 events:
@@ -118,7 +118,7 @@ prose:
   why_it_matters: >-
     Every coded order is margin given away, and code usage creeps: a welcome code, an influencer
     code and a leaked code each add a few points that nobody decided on. At Northwind, 24% of
-    13,300 weekly orders use a code; five more points is about 650 more discounted orders a
+    13,300 weekly orders use a code; five more points is about 665 more discounted orders a
     week.
   pitfalls:
     - Automatic discounts and free-shipping rules leave the coupon empty, so a store that moves from codes to automatic offers sees code usage fall while it discounts more. Read discount rate beside it.

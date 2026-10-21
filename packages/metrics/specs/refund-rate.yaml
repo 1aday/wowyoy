@@ -109,14 +109,15 @@ related: [net-revenue, orders, gross-margin, contribution-margin, gross-sales]
 
 prose:
   why_it_matters: >-
-    Refunds are revenue the store already counted and then gave back, plus shipping both ways.
+    Refunds are revenue the store already counted and then gave back, often with shipping paid both ways.
     Because they follow sales by two to six weeks, the rate moves with last month's orders as
-    much as with today's quality. At Northwind, 3.5% of $1.33M of order revenue is about
-    $46,000 a week; one more point costs $13,300 a week before return shipping.
+    much as with today's quality. At Northwind, about 3.4% of $1.33M of order revenue is
+    refunded, roughly $45,000 a week; one more point costs $13,300 a week before return shipping.
   pitfalls:
     - This spec divides refunds issued this week by this week's order revenue, so the rate rises for weeks after a big sale with no quality problem. For product quality, group refunds by the week of the original order instead.
     - Exchanges and store credit aren't refunds and don't appear here, so a store that pushes exchanges sees the rate fall while returns hold.
     - Partial refunds, price adjustments and goodwill credits count as refunds here. Tag them if you want returns alone.
+    - Return rate is often quoted as orders or units returned ÷ orders or units sold. This spec is by value, so a week of partial refunds or high-priced returns moves the two apart.
     - Chargebacks run through a separate flow in most processors and appear here only if they are recorded as refunds.
 
 reviewed_by: null
