@@ -1,0 +1,404 @@
+{
+ "incidents": [
+  {
+   "id": "kjn6f9xs515n",
+   "name": "Elevated Revolut Pay errors",
+   "impact": "none",
+   "created_at": "2026-10-20T07:09:36.821Z",
+   "started_at": "2026-10-20T07:09:36.813Z",
+   "resolved_at": "2026-10-20T16:42:09.115Z"
+  },
+  {
+   "id": "wklqnr97wbqs",
+   "name": "Spike in cancellations and expired errors with PayByBank payments",
+   "impact": "none",
+   "created_at": "2026-10-20T10:46:57.626Z",
+   "started_at": "2026-10-20T10:46:57.619Z",
+   "resolved_at": "2026-10-20T13:04:45.564Z"
+  },
+  {
+   "id": "rwg302l45yc3",
+   "name": "Elevated declines on Mastercard",
+   "impact": "none",
+   "created_at": "2026-10-15T18:35:08.547Z",
+   "started_at": "2026-10-15T18:35:08.540Z",
+   "resolved_at": "2026-10-15T20:53:25.517Z"
+  },
+  {
+   "id": "lmd6ls9nt7l0",
+   "name": "Elevated declines on Visa",
+   "impact": "none",
+   "created_at": "2026-10-15T17:07:18.874Z",
+   "started_at": "2026-10-15T17:07:18.865Z",
+   "resolved_at": "2026-10-15T18:01:17.165Z"
+  },
+  {
+   "id": "scbk6p6p2btt",
+   "name": "Elevated Amazon Pay errors",
+   "impact": "none",
+   "created_at": "2026-10-15T02:06:22.199Z",
+   "started_at": "2026-10-15T02:06:22.190Z",
+   "resolved_at": "2026-10-15T02:18:40.960Z"
+  },
+  {
+   "id": "0zs9ncsr6t0l",
+   "name": "Elevated Swish errors",
+   "impact": "none",
+   "created_at": "2026-10-06T00:30:50.397Z",
+   "started_at": "2026-10-06T00:30:50.391Z",
+   "resolved_at": "2026-10-06T07:04:06.560Z"
+  },
+  {
+   "id": "f45340rc0qm0",
+   "name": "Elevated API errors",
+   "impact": "none",
+   "created_at": "2026-10-01T02:38:24.795Z",
+   "started_at": "2026-10-01T02:38:24.785Z",
+   "resolved_at": "2026-10-01T03:02:57.079Z"
+  },
+  {
+   "id": "drn27663z90v",
+   "name": "Visa authorization errors",
+   "impact": "none",
+   "created_at": "2026-09-30T02:00:58.253Z",
+   "started_at": "2026-09-30T02:00:58.246Z",
+   "resolved_at": "2026-09-30T03:40:04.311Z"
+  },
+  {
+   "id": "7lr9lwxqj3c0",
+   "name": "Elevated API Errors",
+   "impact": "major",
+   "created_at": "2026-09-27T01:03:01.000Z",
+   "started_at": "2026-09-27T01:03:01.000Z",
+   "resolved_at": "2026-09-27T01:21:40.000Z"
+  },
+  {
+   "id": "3g746nm5qf15",
+   "name": "Elevated Klarna errors",
+   "impact": "none",
+   "created_at": "2026-09-25T06:23:45.831Z",
+   "started_at": "2026-09-25T06:23:45.824Z",
+   "resolved_at": "2026-09-25T07:42:50.829Z"
+  },
+  {
+   "id": "45t05tqxy5w7",
+   "name": "Elevated API errors",
+   "impact": "none",
+   "created_at": "2026-09-23T15:53:25.899Z",
+   "started_at": "2026-09-23T15:53:25.886Z",
+   "resolved_at": "2026-09-23T16:26:42.423Z"
+  },
+  {
+   "id": "tk5f1plzpwnm",
+   "name": "API call success rate drop",
+   "impact": "none",
+   "created_at": "2026-09-22T20:32:28.612Z",
+   "started_at": "2026-09-22T20:32:28.602Z",
+   "resolved_at": "2026-09-22T22:47:11.775Z"
+  },
+  {
+   "id": "qhc2pwg3n7t2",
+   "name": "Stripe Support Systems issue",
+   "impact": "none",
+   "created_at": "2026-09-20T07:31:37.076Z",
+   "started_at": "2026-09-20T07:31:37.069Z",
+   "resolved_at": "2026-09-20T08:10:18.355Z"
+  },
+  {
+   "id": "7h016hnd562f",
+   "name": "Elevated declines on Visa",
+   "impact": "none",
+   "created_at": "2026-09-16T23:33:59.866Z",
+   "started_at": "2026-09-16T23:33:59.858Z",
+   "resolved_at": "2026-09-17T01:17:29.468Z"
+  },
+  {
+   "id": "zmpdfkzbkjcl",
+   "name": "Elevated errors on Google Pay payments",
+   "impact": "none",
+   "created_at": "2026-09-16T10:05:49.000Z",
+   "started_at": "2026-09-16T10:05:49.000Z",
+   "resolved_at": "2026-09-16T17:52:35.333Z"
+  },
+  {
+   "id": "43xfzqymv1dt",
+   "name": "Stripe Support Systems issue",
+   "impact": "none",
+   "created_at": "2026-09-16T10:05:31.151Z",
+   "started_at": "2026-09-16T10:05:31.143Z",
+   "resolved_at": "2026-09-16T17:09:38.437Z"
+  },
+  {
+   "id": "hvy6s6zmp1mn",
+   "name": "Elevated Interac errors",
+   "impact": "none",
+   "created_at": "2026-09-13T04:45:27.892Z",
+   "started_at": "2026-09-13T04:45:27.883Z",
+   "resolved_at": "2026-09-13T15:49:36.459Z"
+  },
+  {
+   "id": "51n7sdp7zl92",
+   "name": "Elevated Interac errors",
+   "impact": "none",
+   "created_at": "2026-09-10T20:53:41.182Z",
+   "started_at": "2026-09-10T20:53:41.173Z",
+   "resolved_at": "2026-09-10T21:28:26.580Z"
+  },
+  {
+   "id": "4q56z5h0hfqn",
+   "name": "Elevated Swish errors",
+   "impact": "none",
+   "created_at": "2026-08-30T13:16:40.948Z",
+   "started_at": "2026-08-30T13:16:40.938Z",
+   "resolved_at": "2026-08-30T14:42:30.524Z"
+  },
+  {
+   "id": "hv5xshx651tz",
+   "name": "Elevated Swish errors",
+   "impact": "none",
+   "created_at": "2026-08-29T19:28:07.888Z",
+   "started_at": "2026-08-29T19:28:07.878Z",
+   "resolved_at": "2026-08-29T20:44:52.363Z"
+  },
+  {
+   "id": "vx6s0ffrq3jf",
+   "name": "Elevated card declines for some users in Mexico",
+   "impact": "none",
+   "created_at": "2026-08-29T06:45:18.625Z",
+   "started_at": "2026-08-29T06:45:18.617Z",
+   "resolved_at": "2026-08-29T07:33:38.381Z"
+  },
+  {
+   "id": "3lphh4hb8nqw",
+   "name": "Elevated Bancontact errors",
+   "impact": "none",
+   "created_at": "2026-08-16T22:39:12.065Z",
+   "started_at": "2026-08-16T22:39:12.057Z",
+   "resolved_at": "2026-08-17T06:29:03.024Z"
+  },
+  {
+   "id": "chlg0pv25fyy",
+   "name": "Elevated declines on Mastercard",
+   "impact": "none",
+   "created_at": "2026-08-15T04:49:50.624Z",
+   "started_at": "2026-08-15T04:49:50.616Z",
+   "resolved_at": "2026-08-15T06:21:39.309Z"
+  },
+  {
+   "id": "kk80k9by4lms",
+   "name": "Financial Connections authorization errors",
+   "impact": "minor",
+   "created_at": "2026-08-08T00:03:14.000Z",
+   "started_at": "2026-08-08T00:03:14.000Z",
+   "resolved_at": "2026-08-08T00:39:30.913Z"
+  },
+  {
+   "id": "j7vtqc6jmfqw",
+   "name": "Elevated Errors for retrieving balance transactions for automatic payouts",
+   "impact": "none",
+   "created_at": "2026-08-06T15:52:31.589Z",
+   "started_at": "2026-08-06T15:52:31.581Z",
+   "resolved_at": "2026-08-06T16:24:32.612Z"
+  },
+  {
+   "id": "y8898n2yk19y",
+   "name": "Elevated API errors",
+   "impact": "none",
+   "created_at": "2026-08-01T12:45:48.656Z",
+   "started_at": "2026-08-01T12:45:48.651Z",
+   "resolved_at": "2026-08-01T12:45:48.696Z"
+  },
+  {
+   "id": "hcmr28nnd39l",
+   "name": "Elevated API errors",
+   "impact": "none",
+   "created_at": "2026-08-01T00:16:17.733Z",
+   "started_at": "2026-08-01T00:16:17.723Z",
+   "resolved_at": "2026-08-01T00:50:40.148Z"
+  },
+  {
+   "id": "7pw1p0pw3b17",
+   "name": "Elevated card authorization errors",
+   "impact": "none",
+   "created_at": "2026-07-29T03:18:55.935Z",
+   "started_at": "2026-07-29T03:18:55.928Z",
+   "resolved_at": "2026-07-29T04:23:46.253Z"
+  },
+  {
+   "id": "s0nbrdrprmrt",
+   "name": "Elevated API errors",
+   "impact": "minor",
+   "created_at": "2026-07-24T12:00:19.329Z",
+   "started_at": "2026-07-24T12:00:19.322Z",
+   "resolved_at": "2026-07-24T12:14:27.948Z"
+  },
+  {
+   "id": "xxkcvlgj8wxw",
+   "name": "Elevated BLIK Errors",
+   "impact": "none",
+   "created_at": "2026-07-21T10:26:47.079Z",
+   "started_at": "2026-07-21T10:26:47.073Z",
+   "resolved_at": "2026-07-21T10:26:47.132Z"
+  },
+  {
+   "id": "cm7qs1tjkw6c",
+   "name": "Elevated BLIK errors",
+   "impact": "none",
+   "created_at": "2026-07-20T21:42:36.253Z",
+   "started_at": "2026-07-20T21:42:36.245Z",
+   "resolved_at": "2026-07-20T22:32:16.655Z"
+  },
+  {
+   "id": "v6sllx288pwy",
+   "name": "Elevated Issuing API Errors",
+   "impact": "none",
+   "created_at": "2026-07-17T19:56:33.859Z",
+   "started_at": "2026-07-17T19:56:33.851Z",
+   "resolved_at": "2026-07-17T20:24:44.397Z"
+  },
+  {
+   "id": "s6hpm263c04x",
+   "name": "Elevated 3DS errors on Mastercard transactions",
+   "impact": "none",
+   "created_at": "2026-07-15T08:06:18.416Z",
+   "started_at": "2026-07-15T08:06:18.401Z",
+   "resolved_at": "2026-07-15T09:42:49.146Z"
+  },
+  {
+   "id": "j5szf7f3wjp5",
+   "name": "Elevated WeChat Pay errors",
+   "impact": "minor",
+   "created_at": "2026-07-02T13:37:33.970Z",
+   "started_at": "2026-07-02T15:07:39.000Z",
+   "resolved_at": "2026-07-03T03:56:36.451Z"
+  },
+  {
+   "id": "wv134rlqz1ds",
+   "name": "Elevated P24 errors",
+   "impact": "none",
+   "created_at": "2026-07-02T10:59:51.738Z",
+   "started_at": "2026-07-02T10:59:51.727Z",
+   "resolved_at": "2026-07-02T11:36:55.995Z"
+  },
+  {
+   "id": "75rxzx9hjgxw",
+   "name": "Elevated card declines for some users in Mexico",
+   "impact": "none",
+   "created_at": "2026-06-11T05:05:49.828Z",
+   "started_at": "2026-06-11T05:05:49.812Z",
+   "resolved_at": "2026-06-11T05:16:59.915Z"
+  },
+  {
+   "id": "7mb3cx0lfctr",
+   "name": "Elevated card declines for some users in Mexico",
+   "impact": "none",
+   "created_at": "2026-06-10T05:17:26.401Z",
+   "started_at": "2026-06-10T05:17:26.359Z",
+   "resolved_at": "2026-06-10T07:41:05.517Z"
+  },
+  {
+   "id": "jkxl171k6zq7",
+   "name": "Elevated declines on Cartes Bancaires",
+   "impact": "none",
+   "created_at": "2026-06-05T05:33:15.960Z",
+   "started_at": "2026-06-05T05:33:15.922Z",
+   "resolved_at": "2026-06-05T14:41:22.983Z"
+  },
+  {
+   "id": "wjg95ch7scvp",
+   "name": "Elevated Bancontact errors",
+   "impact": "none",
+   "created_at": "2026-05-20T13:50:23.388Z",
+   "started_at": "2026-05-20T13:50:23.380Z",
+   "resolved_at": "2026-05-20T14:06:22.302Z"
+  },
+  {
+   "id": "0plg9bpr660h",
+   "name": "SEPA Instant Partial Outage",
+   "impact": "none",
+   "created_at": "2026-05-19T11:58:34.000Z",
+   "started_at": "2026-05-19T11:58:34.000Z",
+   "resolved_at": "2026-05-20T06:47:16.235Z"
+  },
+  {
+   "id": "ws0j885npfx1",
+   "name": "Elevated MobilePay errors",
+   "impact": "major",
+   "created_at": "2026-05-16T16:01:56.392Z",
+   "started_at": "2026-05-16T16:01:56.383Z",
+   "resolved_at": "2026-05-16T18:53:37.009Z"
+  },
+  {
+   "id": "f5l7tqzmc9mm",
+   "name": "Elevated Apple Pay errors",
+   "impact": "none",
+   "created_at": "2026-05-16T03:38:32.134Z",
+   "started_at": "2026-05-16T03:38:32.123Z",
+   "resolved_at": "2026-05-16T05:21:31.408Z"
+  },
+  {
+   "id": "mkbj4zw0w85w",
+   "name": "Elevated Swish errors",
+   "impact": "minor",
+   "created_at": "2026-05-12T09:56:24.197Z",
+   "started_at": "2026-05-12T09:56:24.189Z",
+   "resolved_at": "2026-05-12T10:33:00.811Z"
+  },
+  {
+   "id": "c1pk36f2kh25",
+   "name": "Elevated Authentication Requests",
+   "impact": "minor",
+   "created_at": "2026-05-08T14:07:59.665Z",
+   "started_at": "2026-05-08T14:07:59.660Z",
+   "resolved_at": "2026-05-08T14:47:00.948Z"
+  },
+  {
+   "id": "jf3qmzzgq9k3",
+   "name": "Dashboard authentication errors",
+   "impact": "minor",
+   "created_at": "2026-05-07T13:07:18.102Z",
+   "started_at": "2026-05-07T13:07:18.096Z",
+   "resolved_at": "2026-05-07T13:53:06.212Z"
+  },
+  {
+   "id": "s4ps5f7zf4zh",
+   "name": "Elevated API error rates from 18:15 - 18:34 UTC",
+   "impact": "none",
+   "created_at": "2026-05-06T18:51:29.000Z",
+   "started_at": "2026-05-06T18:51:29.000Z",
+   "resolved_at": "2026-05-06T18:51:29.000Z"
+  },
+  {
+   "id": "jnvb0qp0c7pd",
+   "name": "Certificate warnings on stripe.com and dashboard logins",
+   "impact": "none",
+   "created_at": "2026-04-29T14:39:14.865Z",
+   "started_at": "2026-04-29T14:39:14.862Z",
+   "resolved_at": "2026-04-29T14:39:14.913Z"
+  },
+  {
+   "id": "hzlysrxhzmh9",
+   "name": "Elevated Swish errors",
+   "impact": "none",
+   "created_at": "2026-04-19T14:58:02.979Z",
+   "started_at": "2026-04-19T14:58:02.971Z",
+   "resolved_at": "2026-04-19T15:36:15.295Z"
+  },
+  {
+   "id": "3y9q97y8cl7r",
+   "name": "SMS delivery issues in the US",
+   "impact": "none",
+   "created_at": "2026-04-18T03:48:11.574Z",
+   "started_at": "2026-04-18T03:48:11.567Z",
+   "resolved_at": "2026-04-18T06:42:32.893Z"
+  },
+  {
+   "id": "ldd0qtrsq6c0",
+   "name": "Canadian payouts delay",
+   "impact": "none",
+   "created_at": "2026-04-14T17:20:13.338Z",
+   "started_at": "2026-04-14T17:20:13.332Z",
+   "resolved_at": "2026-04-15T15:43:33.808Z"
+  }
+ ]
+}

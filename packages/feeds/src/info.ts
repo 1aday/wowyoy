@@ -27,7 +27,7 @@ export const feedInfo: Record<FeedId, FeedInfo> = {
   },
   "app-stores": {
     id: "app-stores",
-    name: "App Store and Play releases",
+    name: "iOS releases",
     home: "https://developer.apple.com/news/releases/",
     revalidate: 7 * DAY,
     affects: ["mobile-conversion-rate", "dau", "error-rate", "week-1-retention"],

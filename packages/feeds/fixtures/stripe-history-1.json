@@ -1,0 +1,72 @@
+{
+ "start_time": "2026-08-01T00:00:00Z",
+ "end_time": "2026-10-31T23:59:59Z",
+ "months": [
+  {
+   "name": "October",
+   "year": 2026,
+   "incidents": [
+    {
+     "code": "zshwkhs0twqz",
+     "name": "[Scheduled] Scheduled maintenance for TWINT",
+     "impact": "maintenance",
+     "timestamp": "Oct <var data-var='date'>21</var>, <var data-var='time'>02:01</var> UTC"
+    },
+    {
+     "code": "7w8s9hxm10v5",
+     "name": "[Scheduled] Scheduled maintenance for TWINT",
+     "impact": "maintenance",
+     "timestamp": "Oct <var data-var='date'>21</var>, <var data-var='time'>02:00</var> UTC"
+    }
+   ]
+  },
+  {
+   "name": "September",
+   "year": 2026,
+   "incidents": [
+    {
+     "code": "drn27663z90v",
+     "name": "Visa authorization errors",
+     "impact": "none",
+     "timestamp": "Sep <var data-var='date'>30</var>, <var data-var='time'>02:00</var> - <var data-var='time'>03:40</var> UTC"
+    },
+    {
+     "code": "1l3rth565lf1",
+     "name": "[Scheduled] Scheduled maintenance for TWINT",
+     "impact": "maintenance",
+     "timestamp": "Sep <var data-var='date'>29</var>, <var data-var='time'>17:30</var> - <var data-var='time'>18:00</var> UTC"
+    },
+    {
+     "code": "7lr9lwxqj3c0",
+     "name": "Elevated API Errors",
+     "impact": "major",
+     "timestamp": "Sep <var data-var='date'>27</var>, <var data-var='time'>01:03</var> - <var data-var='time'>01:21</var> UTC"
+    }
+   ]
+  },
+  {
+   "name": "August",
+   "year": 2026,
+   "incidents": [
+    {
+     "code": "djdlzqrq3pgm",
+     "name": "[Scheduled] Scheduled maintenance for TWINT",
+     "impact": "maintenance",
+     "timestamp": "Aug <var data-var='date'>31</var>, <var data-var='time'>00:00</var> - <var data-var='time'>04:00</var> UTC"
+    },
+    {
+     "code": "22nyr971cz4z",
+     "name": "[Scheduled] Scheduled maintenance for Multibanco",
+     "impact": "maintenance",
+     "timestamp": "Aug <var data-var='date'>31</var>, <var data-var='time'>02:01</var> - <var data-var='time'>03:31</var> UTC"
+    },
+    {
+     "code": "kk80k9by4lms",
+     "name": "Financial Connections authorization errors",
+     "impact": "minor",
+     "timestamp": "Aug <var data-var='date'>8</var>, <var data-var='time'>00:03</var> - <var data-var='time'>00:39</var> UTC"
+    }
+   ]
+  }
+ ]
+}

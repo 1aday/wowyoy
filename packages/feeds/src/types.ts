@@ -24,6 +24,8 @@ export interface WorldEvent {
   severity: Severity
   /** Standard metric ids this kind of event can move. */
   affects: string[]
+  /** Where it applies, as ISO country codes ("EU" for the EU clock rule); absent = everywhere. */
+  regions?: string[]
 }
 
 export interface FeedResult {
