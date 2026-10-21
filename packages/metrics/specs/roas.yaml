@@ -244,7 +244,7 @@ noise:
 
 example:
   business: store
-  level: 1.7
+  level: 1.2
   volume: 3800
   trend: -0.05
 
@@ -311,11 +311,13 @@ related: [mer, ad-spend, paid-conversion-rate, cpc, ncac, aov]
 prose:
   why_it_matters: >-
     ROAS says whether the ads pay for themselves, and splits into three numbers that each point
-    at a different team: ROAS is roughly paid conversion rate × order value ÷ cost per click. A store at
-    1.7 earns $1.70 in session-attributed revenue per ad dollar; whether that is profitable
-    depends on margin, so set a break-even ROAS of 1 ÷ gross margin and read against it.
+    at a different team: paid conversion rate × order value ÷ spend per paid session, where spend
+    per paid session is cost per click raised by the clicks that never arrive as a session. At
+    Northwind, 2.1% of paid sessions order at about $97 and each costs about $1.67 of spend, so ROAS
+    is about 1.2: $1.20 of session-attributed revenue per ad dollar. Whether that pays depends on
+    margin: break-even ROAS is 1 ÷ gross margin, about 1.9 at Northwind's 53%.
   pitfalls:
-    - Platform ROAS is not this number. Meta and Google count view-through and modeled conversions and each claim the same order, so the platforms' sum often runs 1.5 to 2 times what the store can match to an ad visit.
+    - Platform ROAS is not this number. Meta and Google count view-through and modeled conversions and each claim the same order, so the platforms' sum usually runs well above what the store can match to an ad visit.
     - Session-attributed ROAS undercounts ads that work slowly. A shopper who clicks an ad, leaves, and buys from a bookmark two days later counts as direct here; read MER alongside it.
     - High ROAS can mean too little spend. Retargeting and branded search show the best returns because they reach people who would have bought anyway.
     - Orders must carry the browser's session id for this query to match them to a visit. Server-side orders without it count as unpaid.

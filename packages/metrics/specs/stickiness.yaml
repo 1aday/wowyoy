@@ -257,7 +257,8 @@ prose:
     Stickiness is the share of a month's users who show up on a given day: 18% means the average
     monthly user comes back about 5 days in 28. It separates products people use from products
     people tried, and unlike DAU it doesn't rise just because marketing brought more people in.
-    Many consumer apps sit between 10% and 25%; the messaging apps people open every day run above 50%.
+    Its level depends on how often the product is meant to be used, so compare it with its own
+    history rather than with another kind of product.
   pitfalls:
     - DAU and MAU must count the same activity. If MAU includes logged-out web visits and DAU only signed-in app opens, the ratio measures your tracking.
     - Calendar-month MAU makes stickiness jump every February. Use a fixed 28-day window.

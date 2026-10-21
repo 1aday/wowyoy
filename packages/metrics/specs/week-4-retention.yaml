@@ -178,7 +178,7 @@ queries:
     ORDER BY w.week;
 
 noise:
-  type: process
+  type: binomial
   min_denominator: 100
   volume_unit: new people in the cohort
   typical: 0.16
@@ -252,8 +252,8 @@ related: [week-1-retention, stickiness, activation-rate, mau, customer-lifetime-
 prose:
   why_it_matters: >-
     Week 4 retention shows who is left once the novelty wears off: people still active a month
-    after arriving are the ones a product tends to keep for months. Retention curves usually
-    flatten around here, so this is close to the share of each cohort the product keeps for good.
+    after arriving are the ones a product tends to keep for months. If a product's retention curve
+    flattens, it has usually started to by now, so this is a first estimate of the share it keeps.
     It is slow by nature, because a cohort's week 4 is known only six weeks after it starts arriving.
   pitfalls:
     - Week 4 here means 28 to 35 days after each person's own first event. Tools that use calendar weeks or day 30 report different numbers, so compare like with like.

@@ -27,10 +27,6 @@ numerator:
   label: Customers with 2 or more orders in 52 weeks
   aggregate: unique_users
   event: order_completed
-  where:
-    - property: is_first_order
-      op: eq
-      value: false
 denominator:
   label: Customers with an order in 52 weeks
   aggregate: unique_users
@@ -251,11 +247,12 @@ related: [second-order-rate, purchase-frequency, repeat-order-share, customer-li
 
 prose:
   why_it_matters: >-
-    Repeat purchase rate is the share of a year's buyers who came back at least once, the number
-    most store benchmarks quote, typically 20 to 30%. Each week adds one week of orders to a 52-week
+    Repeat purchase rate is the share of a year's buyers who came back at least once, and the
+    retention number most store reports quote. Each week adds one week of orders to a 52-week
     window and drops another, so it moves slowly and a move of even half a point is worth a look.
     It is the long view of retention; second order rate is the early warning.
   pitfalls:
+    - Store dashboards often compute it over whatever date range is selected, and some count a customer as repeat when they have any earlier order, even one outside the range. This spec counts 2 or more orders inside the 52 weeks.
     - The window decides the number. A 90-day and a 365-day rate for the same store can differ several times over; this spec uses 52 weeks, and every comparison must too.
     - Fast growth lowers it, because customers won in the last few months haven't had time to reorder. Read it next to new customers before blaming retention.
     - One buyer split across several ids, through guest checkout or a new email, counts as two one-time customers and drags the rate down. Match on the store's customer id.

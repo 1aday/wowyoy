@@ -104,8 +104,8 @@ related: [signups, unique-visitors, activation-rate, demo-request-rate, conversi
 prose:
   why_it_matters: >-
     Signup rate separates two different problems: fewer people arriving, and fewer of them deciding
-    to try the product. For B2B products it usually runs between 1% and 5% of new visitors; at
-    Copperline it is about 4% of 55,000 a week. Because the denominator is visitors, it is very
+    to try the product. At Copperline it is about 4% of 55,000 new visitors a week, or 2,200
+    signups. Because the denominator is visitors, it is very
     sensitive to traffic quality, and a viral post can halve it while adding signups.
   pitfalls:
     - Logged-in customers browsing the app are not prospects. Dividing by all visitors buries the rate under existing users, so this spec divides by first-time visitors.

@@ -63,7 +63,7 @@ drivers:
     label: Holidays
     feed: holidays
     dropped:
-      check: Is this a public holiday week in your main markets? B2B signups fall by a third or more over Christmas.
+      check: Is this a public holiday week in your main markets, such as the fortnight around Christmas?
       yes: The same week last year shows the same dip once aligned on the holiday.
     spiked:
       check: Is this the first full week back after a holiday?

@@ -39,8 +39,8 @@ noise:
 
 example:
   business: store
-  level: 520000
-  volume: 520000
+  level: 600000
+  volume: 600000
   trend: 0.15
 
 drivers:
@@ -108,13 +108,13 @@ related: [unique-visitors, organic-sessions, paid-sessions, bounce-rate, convers
 prose:
   why_it_matters: >-
     Sessions are the top of every store funnel: orders are sessions times conversion, so a
-    traffic move shows up in revenue a few days later at the same size. They are also the
-    number most easily inflated by bots and broken tags. A 520,000-session week that grows 4%
-    from a crawler adds 20,000 sessions and no orders, and drags every rate below it down.
+    traffic move shows up in orders at the same size unless conversion moves too. They are also
+    the number most easily inflated by bots and broken tags. A 600,000-session week that grows 4%
+    from a crawler adds 24,000 sessions and no orders, and drags every rate below it down.
   pitfalls:
     - Sessions are not visitors. One person can have several sessions a week, so a change in how often people come back moves sessions while unique visitors hold.
     - Tools count sessions differently. Universal Analytics also split a visit at midnight and on every campaign change, GA4 estimates its session count, and server logs include bots browser tools never see, so compare a tool only with itself.
-    - Ad blockers and consent banners hide 10 to 30% of visits from browser tracking, and the share changes when the banner or a browser changes, not when traffic does.
+    - Ad blockers and consent banners hide part of every week's visits from browser tracking, and the hidden share changes when the banner or a browser changes, not when traffic does.
     - Bot traffic rarely looks like bots in the total. Split by country, browser and landing page before trusting a jump.
 
 reviewed_by: null
