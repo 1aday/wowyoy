@@ -15,6 +15,7 @@ export default defineConfig({
       WOWYOY_INSECURE_COOKIES: "1",
       ANTHROPIC_API_KEY: "",
       WOWYOY_FEED_FIXTURES: "1",
+      WOWYOY_GITHUB_FIXTURES: "1",
     },
     timeout: 60_000,
   },
