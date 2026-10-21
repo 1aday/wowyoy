@@ -1,0 +1,120 @@
+id: orders
+name: Orders
+aliases:
+  - Order count
+  - Weekly orders
+  - Number of orders
+  - Paid orders
+  - Transactions
+family: revenue
+catalog_id: orders
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: The number of paid orders placed in the week, each counted once, before any refunds.
+  formula: Count of paid orders, by the week they were paid
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server or the payment processor, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+      - name: is_first_order
+        description: True when it is the customer's first ever paid order.
+
+numerator:
+  label: Paid orders
+  aggregate: count
+  event: order_completed
+
+noise:
+  type: poisson
+  min_denominator: 30
+  volume_unit: orders a week
+  typical: 3000
+
+example:
+  business: store
+  level: 13300
+  volume: 13300
+  trend: 0.2
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Did recorded orders fall while the store platform or payment processor shows the usual count?
+      yes: The processor's order count holds, often after a checkout, consent or tag change.
+    spiked:
+      check: Are orders duplicated by thank-you page reloads or webhook retries, or are test orders included?
+      yes: Recorded orders exceed the processor's count, or the same order_id appears more than once.
+  - id: calendar
+    label: Shopping calendar
+    feed: shopping
+    dropped:
+      check: Was last week a sale, holiday or payday week, or is this the week before one?
+      yes: The same week last year shows the same dip once aligned on the event.
+    spiked:
+      check: Is this a sale, holiday or payday week?
+      yes: The same week last year shows the same jump once aligned on the event.
+  - id: payments
+    label: Payment outages
+    metric: payment-success-rate
+    feed: stripe
+    dropped:
+      check: Did a processor incident or a fraud rule block payments for part of the week?
+      yes: Payment success falls for one gateway or method during the hours orders are missing.
+    spiked:
+      check: Did a payment problem from the week before clear?
+      yes: Payment success returns to its usual level and orders recover with it.
+  - id: traffic
+    label: Traffic
+    metric: sessions
+    feed: google-search
+    dropped:
+      check: Did fewer people arrive, and from which channel?
+      yes: Sessions fall in one channel by about as much as orders do, while conversion holds.
+    spiked:
+      check: Did a campaign, press mention or ranking change bring more visitors who buy?
+      yes: Sessions rise in one channel and conversion holds; a bot wave would lift sessions but not orders.
+  - id: conversion
+    label: Store conversion
+    metric: conversion-rate
+    dropped:
+      check: Did the share of visits that buy fall, and at which funnel step?
+      yes: Conversion falls while traffic holds; one step explains most of it.
+    spiked:
+      check: Did more visits buy, and at which funnel step?
+      yes: Conversion rises while traffic holds; one step explains most of it.
+  - id: first-orders
+    label: First vs repeat orders
+    metric: new-customers
+    breakdown: is_first_order
+    dropped:
+      check: Did first orders fall, after an ad budget cut or a campaign ending, while repeat orders held?
+      yes: New customers fall by about as much as orders.
+    spiked:
+      check: Did an email, a launch or a restock bring back past customers?
+      yes: Repeat orders jump while first orders hold.
+
+diagnose_order: [tracking, calendar, payments, traffic, conversion, first-orders]
+
+related: [net-revenue, aov, conversion-rate, sessions, new-customers]
+
+prose:
+  why_it_matters: >-
+    Orders are the store's heartbeat, a count of decisions to buy, free of price and basket
+    effects. Because they are a count, chance alone moves them by about 2.8 ÷ √N: a store with
+    800 orders a week swings ±10% on noise, while Northwind's 13,300 swing about ±2.5%.
+  pitfalls:
+    - Count orders from the server or the payment processor, never from thank-you page views, which double count reloads and miss redirect payments.
+    - Removing fully refunded orders rewrites past weeks for a month or more after they close. This spec counts orders when paid and reads refunds in refund rate.
+    - Test orders, draft orders and $0 replacement orders inflate the count. Flag them at the source rather than filtering in every query.
+    - Subscription renewals and marketplace orders follow their own calendars; mixed in with site orders, a renewal date looks like a sales spike.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

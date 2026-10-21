@@ -1,0 +1,124 @@
+id: aov
+name: Average order value
+aliases:
+  - Average order value
+  - Average basket value
+  - Average transaction value
+  - Average purchase revenue
+family: revenue
+catalog_id: aov
+kind: currency
+polarity: up-is-good
+
+definition:
+  one_line: The average paid order's value after discounts, before tax, shipping and refunds.
+  formula: Order revenue after discounts ÷ paid orders
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: total
+        description: Order value after discounts, before tax and shipping.
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+      - name: is_first_order
+        description: True when it is the customer's first ever paid order.
+
+numerator:
+  label: Order revenue
+  aggregate: sum
+  event: order_completed
+  property: total
+denominator:
+  label: Paid orders
+  aggregate: count
+  event: order_completed
+
+noise:
+  type: mean
+  cv: 0.9
+  min_denominator: 50
+  volume_unit: orders a week
+  typical: 90
+
+example:
+  business: store
+  level: 97
+  volume: 13300
+  trend: 0.1
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Did $0 orders, such as replacements, gifts or influencer seeding, start recording as paid orders?
+      yes: A cluster of orders at or near $0 appears from one day.
+    spiked:
+      check: Did order totals start including tax or shipping, or did one currency arrive unconverted?
+      yes: Totals jump for one country or channel from one day while subtotals hold.
+  - id: calendar
+    label: Shopping calendar
+    feed: shopping
+    dropped:
+      check: Is a sale running, when discounts and cheaper gift items pull the average down?
+      yes: The same week last year shows the same dip once aligned on the event.
+    spiked:
+      check: Is this a gifting week, or did a sale that lowered the average just end?
+      yes: The same week last year shows the same rise once aligned on the event.
+  - id: discounts
+    label: Discounts
+    metric: discount-rate
+    dropped:
+      check: Did the share of sales given away in discounts rise?
+      yes: Discount rate rises while items per order hold, and the average falls by about the extra discount.
+    spiked:
+      check: Did a promotion end, so orders carry less discount?
+      yes: Discount rate falls by about as much as the average rises.
+  - id: basket-size
+    label: Items per order
+    metric: units-per-order
+    dropped:
+      check: Did orders carry fewer items, after a bundle ended or the free-shipping threshold fell?
+      yes: Units per order fall while the price per unit holds.
+    spiked:
+      check: Did a bundle, a multi-buy offer or a higher free-shipping threshold add items to orders?
+      yes: Units per order rise from the day the offer started.
+  - id: price-and-mix
+    label: Prices and product mix
+    dropped:
+      check: Did sales shift toward cheaper products, such as a low-priced launch or an entry product in ads?
+      yes: The price per unit falls while items per order hold.
+    spiked:
+      check: Did prices rise, a premium product launch, or did a handful of very large orders land?
+      yes: The price per unit rises, or the ten largest orders explain most of the jump.
+  - id: first-orders
+    label: First vs repeat orders
+    breakdown: is_first_order
+    dropped:
+      check: Did first orders, which are usually smaller, take a larger share of orders?
+      yes: Each group's average holds and only the mix moved.
+    spiked:
+      check: Did repeat customers take a larger share, or did first orders grow in size?
+      yes: The mix moved toward repeat orders, or first orders' average rose on its own.
+
+diagnose_order: [tracking, calendar, discounts, basket-size, price-and-mix, first-orders]
+
+related: [net-revenue, orders, units-per-order, discount-rate, revenue-per-session]
+
+prose:
+  why_it_matters: >-
+    Revenue is orders × AOV, so AOV separates "fewer people bought" from "people bought less".
+    It moves with prices, discounts, basket size and who is buying, not with traffic. At
+    Northwind, $1 of AOV across 13,300 orders is $13,300 a week, the same revenue as about 135
+    more orders.
+  pitfalls:
+    - Averages follow large orders. A few wholesale or bulk orders can lift a small store's AOV 10% in a week; check the median order beside it.
+    - Dividing net revenue after refunds by orders makes AOV move with refunds on earlier weeks' orders. This spec divides the week's own order revenue by its order count and reads refunds in refund rate.
+    - Including tax and shipping makes AOV move with tax rules, destinations and carrier prices. Keep both out.
+    - A promotion that lowers AOV can still raise revenue. Judge AOV with orders beside it, never alone.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

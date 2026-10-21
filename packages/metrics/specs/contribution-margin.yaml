@@ -1,0 +1,206 @@
+id: contribution-margin
+name: Contribution margin
+aliases:
+  - Contribution profit
+  - Contribution after marketing
+  - CM3
+family: revenue
+kind: currency
+polarity: up-is-good
+
+definition:
+  one_line: What is left of the week's net revenue after the cost of the goods sold and the ad spend that sold them.
+  formula: Net revenue − cost of goods − ad spend, by week (subtract fulfilment and payment fees too when you record them)
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: total
+        description: Order value after discounts, before tax and shipping.
+      - name: cost_of_goods
+        description: The landed cost of the order's items, purchase price plus inbound freight and duties.
+  - name: order_refunded
+    description: A refund issued against an earlier order, full or partial.
+    also_called: [refund, Order Refunded, charge.refunded]
+    properties:
+      - name: amount
+        description: The refunded amount, excluding tax and shipping.
+  - name: ad_spend
+    description: Spend synced from each ad platform, one row per channel per day.
+    also_called: [ad insights, campaign cost data, cost import]
+    properties:
+      - name: channel
+        description: The platform or channel, such as meta, google or tiktok.
+      - name: spend
+        description: Spend for the day, in the store's currency.
+
+numerator:
+  label: Order revenue
+  aggregate: sum
+  event: order_completed
+  property: total
+
+queries:
+  hogql: |-
+    -- Contribution margin: net revenue − cost of goods − ad spend. One row per complete week, last 26 weeks.
+    SELECT
+      toMonday(timestamp) AS week,
+      sumIf(toFloat(properties.total), event = 'order_completed') - sumIf(toFloat(properties.amount), event = 'order_refunded') AS net_revenue,
+      sumIf(toFloat(properties.cost_of_goods), event = 'order_completed') AS cost_of_goods,
+      sumIf(toFloat(properties.spend), event = 'ad_spend') AS ad_spend,
+      net_revenue - cost_of_goods - ad_spend AS value
+    FROM events
+    WHERE event IN ('order_completed', 'order_refunded', 'ad_spend')
+      AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
+      AND timestamp < toStartOfWeek(now(), 1)
+    GROUP BY week
+    ORDER BY week
+  postgres: |-
+    -- Contribution margin: net revenue − cost of goods − ad spend. One row per complete week, last 26 weeks.
+    -- Postgres. Assumes events(event_name, occurred_at, user_id, session_id, properties): one row per event, occurred_at in UTC, properties as JSON.
+    WITH weekly AS (
+      SELECT
+        date_trunc('week', occurred_at)::date AS week,
+        coalesce(sum((properties->>'total')::numeric) FILTER (WHERE event_name = 'order_completed'), 0)
+          - coalesce(sum((properties->>'amount')::numeric) FILTER (WHERE event_name = 'order_refunded'), 0) AS net_revenue,
+        coalesce(sum((properties->>'cost_of_goods')::numeric) FILTER (WHERE event_name = 'order_completed'), 0) AS cost_of_goods,
+        coalesce(sum((properties->>'spend')::numeric) FILTER (WHERE event_name = 'ad_spend'), 0) AS ad_spend
+      FROM events
+      WHERE event_name IN ('order_completed', 'order_refunded', 'ad_spend')
+        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
+        AND occurred_at < date_trunc('week', now())
+      GROUP BY 1
+    )
+    SELECT week, net_revenue, cost_of_goods, ad_spend, net_revenue - cost_of_goods - ad_spend AS value
+    FROM weekly
+    ORDER BY week;
+  bigquery: |-
+    -- Contribution margin: net revenue − cost of goods − ad spend. One row per complete week, last 26 weeks.
+    -- BigQuery. Assumes events(event_name, occurred_at, user_id, session_id, properties): one row per event, occurred_at in UTC, properties as JSON.
+    WITH weekly AS (
+      SELECT
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
+        COALESCE(SUM(IF(event_name = 'order_completed', SAFE_CAST(JSON_VALUE(properties, '$.total') AS FLOAT64), NULL)), 0)
+          - COALESCE(SUM(IF(event_name = 'order_refunded', SAFE_CAST(JSON_VALUE(properties, '$.amount') AS FLOAT64), NULL)), 0) AS net_revenue,
+        COALESCE(SUM(IF(event_name = 'order_completed', SAFE_CAST(JSON_VALUE(properties, '$.cost_of_goods') AS FLOAT64), NULL)), 0) AS cost_of_goods,
+        COALESCE(SUM(IF(event_name = 'ad_spend', SAFE_CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64), NULL)), 0) AS ad_spend
+      FROM events
+      WHERE event_name IN ('order_completed', 'order_refunded', 'ad_spend')
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      GROUP BY week
+    )
+    SELECT week, net_revenue, cost_of_goods, ad_spend, net_revenue - cost_of_goods - ad_spend AS value
+    FROM weekly
+    ORDER BY week;
+  snowflake: |-
+    -- Contribution margin: net revenue − cost of goods − ad spend. One row per complete week, last 26 weeks.
+    -- Snowflake. Assumes WEEK_START = 1 (Monday) and events(event_name, occurred_at, user_id, session_id, properties), occurred_at in UTC.
+    WITH weekly AS (
+      SELECT
+        DATE_TRUNC('week', occurred_at)::date AS week,
+        COALESCE(SUM(IFF(event_name = 'order_completed', properties:"total"::float, NULL)), 0)
+          - COALESCE(SUM(IFF(event_name = 'order_refunded', properties:"amount"::float, NULL)), 0) AS net_revenue,
+        COALESCE(SUM(IFF(event_name = 'order_completed', properties:"cost_of_goods"::float, NULL)), 0) AS cost_of_goods,
+        COALESCE(SUM(IFF(event_name = 'ad_spend', properties:"spend"::float, NULL)), 0) AS ad_spend
+      FROM events
+      WHERE event_name IN ('order_completed', 'order_refunded', 'ad_spend')
+        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+      GROUP BY 1
+    )
+    SELECT week, net_revenue, cost_of_goods, ad_spend, net_revenue - cost_of_goods - ad_spend AS value
+    FROM weekly
+    ORDER BY week;
+
+noise:
+  type: process
+  min_denominator: 50
+  volume_unit: orders a week
+  typical: 100000
+
+example:
+  business: store
+  level: 291000
+  volume: 13300
+  trend: 0.15
+
+drivers:
+  - id: tracking
+    label: Spend and cost data
+    dropped:
+      check: Did ad spend sync twice for a platform, or did cost_of_goods change basis?
+      yes: One channel's spend doubles with no change in its ads manager, or cost per unit jumps on one date.
+    spiked:
+      check: Did an ad platform's spend sync fail, or did products start selling without a recorded cost?
+      yes: One channel shows no spend for some days, or orders with no cost_of_goods appear. Fix the data before celebrating.
+  - id: ad-spend
+    label: Ad spend
+    metric: ad-spend
+    feed: ad-platforms
+    dropped:
+      check: Did ad spend rise faster than the revenue it brought, from a budget increase or a new campaign?
+      yes: Spend rises while net revenue rises less, so each extra dollar of spend returns less than a dollar of margin.
+    spiked:
+      check: Did spend fall, from a budget cut, a paused campaign or an ad account problem?
+      yes: Spend falls while revenue holds this week; watch whether new customers fall in the weeks after.
+  - id: net-revenue
+    label: Net revenue
+    metric: net-revenue
+    feed: shopping
+    dropped:
+      check: Did net revenue fall, from fewer orders, smaller orders or more refunds?
+      yes: Net revenue falls while spend and margin hold.
+    spiked:
+      check: Is this a sale or holiday week, or did revenue rise for a reason that will last?
+      yes: Net revenue rises while spend holds; the same week last year shows whether it's the calendar.
+  - id: gross-margin
+    label: Gross margin
+    metric: gross-margin
+    dropped:
+      check: Did discounts, product mix or unit costs lower gross margin?
+      yes: Gross margin falls while revenue and spend hold.
+    spiked:
+      check: Did a sale end or a price rise lift gross margin?
+      yes: Gross margin rises while revenue and spend hold.
+  - id: efficiency
+    label: Marketing efficiency
+    metric: mer
+    dropped:
+      check: Did each ad dollar bring in less revenue, from rising CPMs or tired creative?
+      yes: MER falls while spend holds.
+    spiked:
+      check: Did each ad dollar bring in more revenue, or did a sale lift revenue on the same spend?
+      yes: MER rises while spend holds; check the calendar before crediting the ads.
+  - id: refunds
+    label: Refunds
+    metric: refund-rate
+    dropped:
+      check: Did refunds jump, after a big sale, a bad batch or a delivery problem?
+      yes: Refund rate rises while gross sales and spend hold.
+    spiked:
+      check: Did refunds fall back after an unusual week?
+      yes: Refund rate returns to its usual level and margin recovers with it.
+
+diagnose_order: [tracking, ad-spend, net-revenue, gross-margin, efficiency, refunds]
+
+related: [net-revenue, gross-margin, ad-spend, mer, refund-rate, ncac]
+
+prose:
+  why_it_matters: >-
+    Revenue can grow while the business earns less; contribution margin is the check. It takes
+    away what the goods cost and what the ads that sold them cost, leaving the money that pays
+    for salaries, rent and profit. At Northwind about $1.29M of net revenue leaves roughly
+    $345,000 after $560,000 of goods and $380,000 of ads, so a 10% rise in ad spend with flat
+    revenue cuts it by 11%.
+  pitfalls:
+    - Shipping labels, packaging, fulfilment and payment fees are variable costs too, often 10–15% of revenue. Leaving them out overstates contribution margin; add them as a per-order estimate if you don't record them.
+    - Ad spend is booked on the day it's spent, but the orders it drives can land days later, so a launch week reads low and the next week high. Use two-week sums when spend moves a lot.
+    - When one platform's spend sync fails, contribution margin jumps by that platform's spend. Check every channel reported spend before celebrating.
+    - Some teams stop before marketing and call that contribution margin. This spec takes ad spend out because that is the number that says whether growth pays.
+
+reviewed_by: null
+reviewed_at: null
+version: 1
