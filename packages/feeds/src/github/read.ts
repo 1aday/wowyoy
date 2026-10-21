@@ -32,6 +32,25 @@ export function moveText(v: Pick<NoiseVerdict, "before" | "after" | "relativeCha
   return `${glyph}${percentText(v.relativeChange)}`
 }
 
+const weeksText = (n: number | null) =>
+  n == null || !Number.isFinite(n) ? "almost never" : `about once every ${n.toLocaleString("en-US")} ${n === 1 ? "week" : "weeks"}`
+
+/** Why a week got its call, one plain sentence about the repo. */
+export function whyText(v: Pick<NoiseVerdict, "call" | "clearsFloor" | "oneInWeeks" | "reason">) {
+  switch (v.call) {
+    case "real":
+      return `Chance alone makes a move this size ${weeksText(v.oneInWeeks)} at this count, and it breaks the repo's usual week-to-week range.`
+    case "noise":
+      return v.clearsFloor === false
+        ? `At this count, chance alone moves it this much ${weeksText(v.oneInWeeks)}.`
+        : "Weeks like this are inside the repo's usual range."
+    case "too-few":
+      return "Under 10 a week, chance moves the count more than most real changes do."
+    default:
+      return v.reason
+  }
+}
+
 export const callWords: Record<NoiseCall, string> = { real: "real", edge: "edge", noise: "noise", "too-few": "too few" }
 
 export interface WeekCall {

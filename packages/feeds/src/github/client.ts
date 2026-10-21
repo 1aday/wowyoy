@@ -80,7 +80,8 @@ export interface TransportOptions {
   fetch?: typeof fetch
   /** Returns the Authorization header value, or null for anonymous reads. */
   authorization?: () => Promise<string | null>
-  revalidate?: number
+  /** Seconds to cache each read in Next's fetch cache; false when the caller caches instead. */
+  revalidate?: number | false
 }
 
 /**
@@ -106,7 +107,7 @@ export function createTransport(opts: TransportOptions = {}): GhTransport {
         method: req.method ?? "GET",
         headers,
         body: req.body,
-        next: { revalidate, tags: req.tags },
+        ...(revalidate === false ? {} : { next: { revalidate, tags: req.tags } }),
       } as RequestInit)
     } catch (e) {
       throw new GitHubError("offline", e instanceof Error ? e.message : "GitHub could not be reached")
