@@ -1,0 +1,119 @@
+id: signups
+name: Signups
+aliases:
+  - Sign-ups
+  - New signups
+  - Registrations
+  - Account creations
+family: activation
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: People who created an account this week, each counted once.
+  formula: Distinct people with a signed_up event, by signup week
+
+events:
+  - name: signed_up
+    description: An account created, sent by the server when the account exists, not when the form is submitted.
+    also_called: [sign_up, Signed Up, user_signed_up, account_created]
+    properties:
+      - name: method
+        description: How the account was created, such as email, google, sso or invite.
+      - name: plan
+        description: The plan chosen at signup, if any.
+
+numerator:
+  label: People who signed up
+  aggregate: unique_users
+  event: signed_up
+
+noise:
+  type: poisson
+  min_denominator: 30
+  volume_unit: signups a week
+  typical: 2200
+
+example:
+  business: saas
+  level: 2200
+  volume: 2200
+  trend: 0.25
+
+drivers:
+  - id: tracking
+    label: Signup event
+    breakdown: method
+    dropped:
+      check: Did the signup event stop firing for one method, such as Google sign-in after a release?
+      yes: One signup method falls to near zero while the others hold, and accounts in the database don't fall.
+    spiked:
+      check: Is the event firing twice, from both the client and the server, or on every login?
+      yes: Signups recorded exceed new accounts in the database, or many people have more than one signed_up event.
+  - id: bots
+    label: Bots and spam
+    breakdown: $geoip_country_code
+    dropped:
+      check: Did a new captcha, email verification or bot filter start blocking real people too?
+      yes: Signups fall from the day the filter shipped while visits and form starts hold.
+    spiked:
+      check: Is the spike bots or spam, many signups from one country, email domain or IP range?
+      yes: The extra signups cluster in one country or domain and almost none of them activate.
+  - id: calendar
+    label: Holidays
+    feed: holidays
+    dropped:
+      check: Is this a public holiday week in your main markets? B2B signups fall by a third or more over Christmas.
+      yes: The same week last year shows the same dip once aligned on the holiday.
+    spiked:
+      check: Is this the first full week back after a holiday?
+      yes: The same week last year shows the same rebound.
+  - id: campaigns
+    label: Campaigns and launches
+    breakdown: utm_source
+    feed: ad-platforms
+    dropped:
+      check: Did a campaign end, a paid channel pause or an ad account get limited?
+      yes: Signups from one source fall to their pre-campaign level while the others hold.
+    spiked:
+      check: Did a launch, a press mention or a campaign bring a wave of signups?
+      yes: The extra signups come from one source; check whether they activate before celebrating.
+  - id: traffic
+    label: Visitors
+    metric: unique-visitors
+    feed: google-search
+    dropped:
+      check: Did fewer people reach the site, and from which channel?
+      yes: Visitors fall in one channel, often organic search after a ranking change, by about as much as signups.
+    spiked:
+      check: Did more people reach the site from one channel?
+      yes: Visitors rise in one channel and signup rate holds.
+  - id: signup-rate
+    label: Signup rate
+    metric: signup-rate
+    dropped:
+      check: Did a smaller share of visitors sign up, after a pricing, form or homepage change?
+      yes: Visitors hold while signup rate falls from the day of the change.
+    spiked:
+      check: Did a shorter form, a free plan or a new call to action lift the share who sign up?
+      yes: Visitors hold while signup rate rises from the day of the change.
+
+diagnose_order: [tracking, bots, calendar, campaigns, traffic, signup-rate]
+
+related: [signup-rate, activation-rate, trial-starts, unique-visitors, sessions]
+
+prose:
+  why_it_matters: >-
+    Signups are the top of a product's funnel and the number most often celebrated too early. At
+    Copperline's 2,200 a week, chance alone moves the count about 6% either way, so a 10% jump is
+    worth a look and a 4% one is not. Count only what becomes a real account: bots, test accounts
+    and double-fired events inflate signups and nothing after them.
+  pitfalls:
+    - Client-side signup events fire twice on a reload or a double submit. Send signed_up from the server when the account is created.
+    - Spam and bot signups can double the count in a week and never activate. Check signups by country and email domain before celebrating a spike.
+    - Teammates who accept an invite are new accounts but not new demand. Split by signup method, or a viral week looks like a marketing win.
+    - A signup is not a customer. Judge a channel by its activation rate, not by its signup count.
+
+reviewed_by: null
+reviewed_at: null
+version: 1
