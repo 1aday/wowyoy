@@ -2,11 +2,9 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ArrowUpRight } from "lucide-react"
 import { exampleBusinesses } from "@workspace/metrics/example"
 import { flukeTest } from "@workspace/metrics/fluke"
 import { DOWN, UP } from "@workspace/metrics/format"
-import { Button } from "@workspace/ui/components/button"
 import { Prompt } from "@workspace/ui/brand/prompt"
 import { cn } from "@workspace/ui/lib/utils"
 import type { WhyDirection } from "@workspace/compiler/site"
@@ -80,13 +78,9 @@ function Layout({
         </div>
         <div className="min-w-0 @2xl:self-center">{chart}</div>
       </div>
-      <div className="flex flex-col gap-3 border-t border-border px-5 py-4 sm:px-6 @2xl:flex-row @2xl:items-center @2xl:justify-between @2xl:gap-8">
+      {/* The page around the embed carries the call to connect; the embed only explains itself. */}
+      <div className="border-t border-border px-5 py-4 sm:px-6">
         <p className="max-w-[72ch] text-[12.5px] leading-relaxed text-muted-foreground">{note}</p>
-        <Button asChild className="shrink-0 self-start @max-md:w-full @2xl:self-center">
-          <Link href="/connect">
-            Run this on every metric, every Monday <ArrowUpRight className="size-4" strokeWidth={1.5} />
-          </Link>
-        </Button>
       </div>
     </>
   )

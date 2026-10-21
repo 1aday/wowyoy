@@ -168,9 +168,10 @@ export function headlineFor(week: IsoWeek, world: WorldGroup[], calendar: Calend
   const parts: string[] = peak ? [list(cal), ...worldParts] : [...worldParts]
   if (cal.length && !peak) parts.push(list(cal))
   if (!worldParts.length && outagesAnswered) parts.push(cal.length ? "no major outages" : "A quiet week: no major outages, no moving holidays")
-  if (!worldParts.length && !outagesAnswered) {
+  // A missing feed only reaches the headline when there is nothing else to say; the line under it counts the feeds.
+  if (!worldParts.length && !outagesAnswered && !cal.length) {
     const names = WORLD_FEEDS.filter((f) => isOutageFeed(f) && unavailable.some((u) => u.feed === f)).map((f) => shortNames[f])
-    parts.push(`${cal.length ? "" : "No moving holidays; "}${list(names)} ${names.length === 1 ? "was" : "were"} unavailable`)
+    parts.push(`No moving holidays; ${list(names)} ${names.length === 1 ? "was" : "were"} unavailable`)
   }
   return `${capital(parts.join("; "))}.`
 }

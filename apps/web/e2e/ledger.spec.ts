@@ -34,7 +34,7 @@ test.describe("monday ledger", () => {
   test("a Black Friday week: calendar rows, the YoY base and a feed that can't reach back", async ({ page }) => {
     const errors = watchErrors(page)
     await page.goto("/w/2025-w48")
-    await expect(page.locator("h1")).toHaveText("Black Friday and Thanksgiving in the US; Cloudflare and Stripe were unavailable.")
+    await expect(page.locator("h1")).toHaveText("Black Friday and Thanksgiving in the US.")
     await expect(page).toHaveTitle(/^Week 48, 2025: Black Friday/)
     const calendar = page.getByRole("region", { name: "Calendar" })
     await expect(calendar.getByRole("row", { name: /Black Friday/ })).toContainText("Fri Nov 28")

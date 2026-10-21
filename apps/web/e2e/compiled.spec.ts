@@ -119,8 +119,8 @@ test.describe("why pages", () => {
     await page.goto("/why/checkout-conversion-dropped")
     await expect(page.locator("h1")).toHaveText("Why did checkout conversion drop?")
     await expect(page.locator("#chance, #world, #business")).toHaveCount(3)
-    const labels = await page.locator("ol > li[id] .label-mono").allTextContents()
-    expect(labels.slice(0, 3).map((l) => l.replace(/\s+/g, " "))).toEqual(["Step 1 · Chance", "Step 2 · The world", "Step 3 · Your business"])
+    const labels = await Promise.all(["chance", "world", "business"].map((id) => page.locator(`#${id} .label-mono`).first().textContent()))
+    expect(labels.map((l) => (l ?? "").replace(/\s+/g, " "))).toEqual(["Step 1 · Chance", "Step 2 · The world", "Step 3 · Your business"])
 
     await expect(page.getByTestId("band-explorer")).toBeVisible()
     await expect(page.getByTestId("world-events").locator("[data-feed]").first()).toBeVisible()
