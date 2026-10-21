@@ -126,6 +126,9 @@ export function MetricIndex({ items, families, volume }: { items: IndexItem[]; f
       </div>
 
       <div id="metric-index">
+        <p className="pt-6 text-[13px] leading-relaxed text-muted-foreground md:hidden">
+          The figure beside each metric is its noise band at <span className="num">{volume}</span> a week.
+        </p>
         {!matches.length && (
           <p className="py-16 text-[15px] text-muted-foreground">
             No metric matches &ldquo;{q}&rdquo;. Try a name, an alias like <span className="font-mono text-foreground">AOV</span> or an event like{" "}
@@ -163,7 +166,7 @@ export function MetricIndex({ items, families, volume }: { items: IndexItem[]; f
                           data-metric={i.id}
                           aria-current={on || undefined}
                           className={cn(
-                            "group relative -mx-4 grid grid-cols-[minmax(0,1fr)_auto] gap-x-6 px-4 gap-y-1 py-3.5 transition-colors duration-[80ms] hover:bg-accent md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_7rem_6.5rem] md:py-3",
+                            "group relative -mx-4 grid grid-cols-[minmax(0,1fr)_auto] gap-x-6 px-4 gap-y-1 py-3.5 transition-colors duration-[80ms] hover:bg-accent md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_7rem_8rem] md:py-3",
                             on && "bg-accent",
                           )}
                         >

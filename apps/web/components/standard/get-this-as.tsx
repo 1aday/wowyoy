@@ -7,7 +7,7 @@ import { cn } from "@workspace/ui/lib/utils"
 import { CopyButton } from "./copy-button"
 
 const item =
-  "inline-flex h-8 items-center px-2.5 font-mono text-[12px] text-muted-foreground transition-colors duration-[80ms] hover:bg-accent hover:text-foreground"
+  "inline-flex h-8 items-center justify-center px-2.5 font-mono max-sm:flex-1 text-[12px] text-muted-foreground transition-colors duration-[80ms] hover:bg-accent hover:text-foreground"
 
 /** The same spec for machines: the file twins, the MCP server and the query, one click each. */
 export function GetThisAs({ id, query, className }: { id: string; query: string | null; className?: string }) {

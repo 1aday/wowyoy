@@ -11,6 +11,7 @@ export function CopyButton({
   copiedLabel = "Copied",
   className,
   icon = true,
+  iconOnlyOnMobile = false,
   ...props
 }: {
   text: string
@@ -18,6 +19,8 @@ export function CopyButton({
   copiedLabel?: string
   className?: string
   icon?: boolean
+  /** Below 640px show the icon alone; the label stays for screen readers. */
+  iconOnlyOnMobile?: boolean
 } & Omit<React.ComponentProps<"button">, "onClick" | "children">) {
   const [copied, setCopied] = React.useState(false)
   const timer = React.useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -54,7 +57,7 @@ export function CopyButton({
       {...props}
     >
       {icon && (copied ? <Check className="size-3.5" strokeWidth={1.5} aria-hidden /> : <Copy className="size-3.5" strokeWidth={1.5} aria-hidden />)}
-      <span className="grid" aria-hidden>
+      <span className={cn("grid", iconOnlyOnMobile && "max-sm:hidden")} aria-hidden>
         <span className={cn("col-start-1 row-start-1", copied && "invisible")}>{label}</span>
         <span className={cn("col-start-1 row-start-1", !copied && "invisible")}>{copiedLabel}</span>
       </span>

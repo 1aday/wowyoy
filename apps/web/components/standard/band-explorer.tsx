@@ -72,7 +72,7 @@ export function BandExplorer({
         ) : (
           <>
             a move inside{" "}
-            <span className="num whitespace-nowrap" data-testid="band-value">
+            <span className="num whitespace-nowrap" data-testid="band-value" data-value={`±${band.value.toFixed(band.digits)}${band.suffix}`}>
               <NumberFlow
                 value={band.value}
                 prefix="±"

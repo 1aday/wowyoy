@@ -128,7 +128,7 @@ export function QueryTabs({
               tabIndex={d === active ? 0 : -1}
               onClick={() => setDialect(d)}
               className={cn(
-                "px-2 font-mono text-[12px] whitespace-nowrap transition-colors duration-[80ms] sm:px-2.5 sm:text-[12.5px]",
+                "px-1.5 font-mono text-[12px] whitespace-nowrap min-[400px]:px-2 transition-colors duration-[80ms] sm:px-2.5 sm:text-[12.5px]",
                 d === active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
                 // Before the sliding bar is measured (first paint), the active tab draws its own underline.
                 !bar && d === active && "relative after:absolute after:inset-x-1.5 after:bottom-[-1px] after:h-[2px] after:bg-foreground",
@@ -145,7 +145,7 @@ export function QueryTabs({
             />
           )}
         </div>
-        <CopyButton text={sql} label="Copy" aria-label={`Copy the ${dialectNames[active]} query`} data-testid="copy-query" className="max-sm:px-2" />
+        <CopyButton text={sql} label="Copy" aria-label={`Copy the ${dialectNames[active]} query`} data-testid="copy-query" iconOnlyOnMobile className="max-sm:w-8 max-sm:justify-center max-sm:px-0" />
       </div>
       <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${active}`} tabIndex={0} className="outline-none">
         <pre className="overflow-x-auto px-4 py-4 font-mono text-[12.5px] leading-[1.75] sm:px-5" data-dialect={active}>

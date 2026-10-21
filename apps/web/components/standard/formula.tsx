@@ -57,9 +57,10 @@ export function Formula({ spec }: { spec: MetricSpec }) {
   if (spec.queries) {
     return (
       <div className="rounded-xl border border-border bg-card px-5 py-6 sm:px-8 sm:py-7" data-testid="formula">
-        <div className="text-[17px] leading-snug">{num.label}</div>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5 font-mono text-[12px] text-muted-foreground">
-          <span>from</span>
+        {/* The numerator's label names the whole metric only when nothing divides or subtracts it. */}
+        {!den && !sub && <div className="mb-2 text-[17px] leading-snug">{num.label}</div>}
+        <div className="flex flex-wrap items-center gap-1.5 font-mono text-[12px] text-muted-foreground">
+          <span>{!den && !sub ? "from" : "Reads"}</span>
           {events.map((e, i) => (
             <span key={e.name} className="inline-flex items-center gap-1.5">
               {i > 0 && <span>and</span>}

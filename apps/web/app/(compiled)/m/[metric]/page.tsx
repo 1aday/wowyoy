@@ -19,7 +19,7 @@ import { bandModel } from "@/lib/standard/band-model"
 import { formatSpecValue } from "@/lib/standard/format"
 import { jsonLdHtml, metricJsonLd } from "@/lib/standard/jsonld"
 import { queryNotes, resolveMetric, treeDrivers, whyLinks } from "@/lib/standard/pages"
-import { businessName, kindLabel, lowerName, noiseLabel, noiseSentence, numberWord, processSwing, trendView, whyQuestion } from "@/lib/standard/spec-view"
+import { businessName, kindLabel, lowerName, noiseLabel, noiseSentence, numberWord, processSwing, trendView, verdictReason, whyQuestion } from "@/lib/standard/spec-view"
 
 type Params = Promise<{ metric: string }>
 
@@ -105,7 +105,7 @@ export default async function MetricPage({ params }: { params: Params }) {
         note={`Fictional data for ${businessName(spec).name}, ${businessName(spec).what}. Never a real customer.`}
         title={<ExampleTitle spec={spec} trend={trend} />}
       >
-        {trend.verdict && <p className="-mt-2 mb-6 max-w-2xl text-[15px] leading-relaxed text-muted-foreground">{trend.verdict.reason}</p>}
+        {trend.verdict && <p className="-mt-2 mb-6 max-w-2xl text-[15px] leading-relaxed text-muted-foreground">{verdictReason(trend.verdict)}</p>}
         <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
           <div className="label-mono mb-4">Example data · {businessName(spec).name}</div>
           <SpecTrendChart spec={spec} points={trend.points} real={trend.verdict?.call === "real"} name={spec.name} />
@@ -186,7 +186,8 @@ function Facts({ spec }: { spec: MetricSpec }) {
   return (
     <dl className="mt-10 grid grid-cols-2 gap-x-8 gap-y-5 border-t border-border pt-6 sm:flex sm:flex-wrap sm:gap-x-12">
       {facts.map(([k, v]) => (
-        <div key={k} className="min-w-0">
+        // Two to a row on phones, where the version would sit alone: it is left out there.
+        <div key={k} className={k === "Version" ? "min-w-0 max-sm:hidden" : "min-w-0"}>
           <dt className="label-mono">{k}</dt>
           <dd className="mt-1.5 text-[14.5px]">{v}</dd>
         </div>

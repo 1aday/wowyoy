@@ -133,6 +133,11 @@ export function trendView(spec: Pick<MetricSpec, "id" | "kind" | "noise" | "exam
   return { points, verdict, outside }
 }
 
+/** The verdict's reason as a page prints it: "once every 1 weeks" reads as "most weeks". */
+export function verdictReason(v: Pick<NoiseVerdict, "reason">) {
+  return v.reason.replace(/about once every 1 weeks/g, "most weeks")
+}
+
 /** For metrics with no sampling floor: the normal week-to-week move in the example data, as a share of the level. */
 export function processSwing(spec: Pick<MetricSpec, "id" | "kind" | "noise" | "example">, end?: string) {
   const res = flukeTest(exampleSeries(spec, { weeks: 27, end }).map((p) => p.value))

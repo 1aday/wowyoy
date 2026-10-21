@@ -50,7 +50,8 @@ export function SpecTrendChart({
   const data = React.useMemo(() => (narrow ? points.slice(-13) : points), [points, narrow])
   const last = data.at(-1)
   const prev = data.at(-2)
-  const fmt = (v: number) => formatSpecValue(spec, v)
+  const fmt = (v: number) => formatSpecValue(spec, v, true)
+  const full = (v: number) => formatSpecValue(spec, v)
   const config = {
     value: { label: "This year", color: INK },
     lastYear: { label: "Last year", color: GREY },
@@ -77,7 +78,7 @@ export function SpecTrendChart({
                       {config[key as keyof typeof config]?.label ?? key}
                     </span>
                     <span className="num font-medium text-foreground">
-                      {Array.isArray(value) ? `${fmt(Number(value[0]))} – ${fmt(Number(value[1]))}` : fmt(Number(value))}
+                      {Array.isArray(value) ? `${full(Number(value[0]))} – ${full(Number(value[1]))}` : full(Number(value))}
                     </span>
                   </div>
                 )}
