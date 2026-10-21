@@ -102,9 +102,10 @@ related: [mer, ncac, roas, cpm, paid-sessions, blended-cac]
 prose:
   why_it_matters: >-
     Spend is the one acquisition number the team chooses, so a move that nobody planned is
-    either a broken sync or a campaign spending without supervision. Automated bidding can spend
-    a week's budget in two days. At $300,000 a week, a sync that drops one platform for a day
-    makes MER and CAC look 5 to 10% better than they are.
+    either a broken sync or a campaign spending without supervision. Automated bidding can run
+    well past its usual daily pace after a budget or target change. At $300,000 a week, a sync
+    that misses one day of a platform carrying half the budget understates spend by about 7%,
+    and MER and CAC look about 7% better than they are.
   pitfalls:
     - Ad platforms report days in the ad account's time zone. Summed into UTC weeks, a few hours of spend move between weeks, and a time zone change on the account shifts a whole day.
     - Platforms restate recent spend for invalid clicks and late data. Re-sync the last 7 days every day, or last week's number changes after you report it.

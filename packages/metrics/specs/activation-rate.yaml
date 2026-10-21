@@ -269,9 +269,9 @@ related: [onboarding-completion-rate, time-to-value, signups, week-1-retention, 
 
 prose:
   why_it_matters: >-
-    Activation is where most products lose most of their signups, and the earliest number that
-    predicts revenue: people who reach the aha moment in their first week stay far more often than
-    those who don't. A fixed 7-day window makes cohorts comparable and lets each week be judged two
+    Activation is where most signups are lost: at Copperline two in three never reach the
+    milestone. It is also the earliest number that predicts revenue, because the milestone is
+    chosen as the action that best separates people who stay from people who leave. A fixed 7-day window makes cohorts comparable and lets each week be judged two
     weeks later, not months. With 2,200 signups in a cohort, a move of under 3 points is still chance.
   pitfalls:
     - The milestone defines the metric. Pick the action that best separates users still active a month later from those who left, then don't change it without restarting the series.

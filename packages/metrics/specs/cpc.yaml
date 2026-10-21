@@ -109,10 +109,10 @@ prose:
     converting at 2% means $62.50 of media per order, so a 20% rise in CPC adds $12.50 to every
     paid order unless conversion rises with it.
   pitfalls:
-    - Clicks are not visits. Platform clicks run 10 to 25% above sessions recorded on the site, so cost per paid session is always higher than CPC.
-    - A blended CPC moves with the budget mix. Non-brand search can cost ten times a social click; split by channel before reading a change.
+    - Clicks are not visits. Some clicks never load the page or are never recorded; at Northwind 240,000 clicks become about 180,000 paid sessions, so cost per paid session is about $1.67, not $1.25.
+    - A blended CPC moves with the budget mix. A non-brand search click can cost several times a social click; split by channel before reading a change.
     - A cheap click that never converts is expensive. Read CPC with paid conversion rate, never alone.
-    - Meta's "cost per click (all)" divides by every click, including likes and profile taps. Use cost per link click to match this spec.
+    - Meta's "CPC (all)" divides by every click, including likes and profile taps. Use cost per link click to match this spec.
 
 reviewed_by: null
 reviewed_at: null

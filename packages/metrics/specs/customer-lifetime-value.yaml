@@ -301,7 +301,7 @@ drivers:
     label: Holiday cohorts
     feed: shopping
     dropped:
-      check: Is this a Black Friday or holiday cohort? Deal hunters and gift buyers are worth less over a year.
+      check: Is this a Black Friday or holiday cohort? Deal hunters and gift buyers are often worth less over a year.
       yes: The same cohort weeks last year show the same dip.
     spiked:
       check: Is this a cohort from a quiet, full-price season?
@@ -358,7 +358,7 @@ prose:
     - Revenue LTV overstates what a customer is worth. Take off product cost before comparing it with acquisition cost, as LTV to CAC does.
     - Only cohorts whose 365 days have closed are reported, so the latest point describes customers who first ordered over a year ago. For an early read on recent cohorts, use second order rate.
     - Refunds belong to the order they reverse. Taking refunds off by refund date instead of by order moves value between cohorts.
-    - Holiday cohorts are larger and worth less per customer. Compare a cohort with the same week last year.
+    - Holiday cohorts are larger and often worth less per customer. Compare a cohort with the same week last year.
 
 reviewed_by: null
 reviewed_at: null
