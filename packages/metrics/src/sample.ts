@@ -6,10 +6,9 @@
  */
 
 import type { MetricId } from "./catalog"
+import type { MetricWeek } from "./series"
 
-export interface WeekRow {
-  /** Monday of the ISO week, YYYY-MM-DD */
-  week: string
+export interface WeekRow extends MetricWeek {
   values: Record<MetricId, number>
   /** Raw counts behind the rates */
   counts: {

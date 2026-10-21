@@ -14,7 +14,7 @@ import {
   type Comparison,
   type MetricId,
   type PulseRow,
-  type WeekRow,
+  type MetricWeek,
 } from "@workspace/metrics"
 import { cn } from "@workspace/ui/lib/utils"
 import { Delta } from "./delta"
@@ -38,7 +38,7 @@ export function PulseTable({
   className,
 }: {
   rows: PulseRow[]
-  history: WeekRow[]
+  history: readonly MetricWeek[]
   index: number
   selected: MetricId
   onSelect: (id: MetricId) => void
@@ -67,7 +67,7 @@ export function PulseTable({
             const id = info.row.original.id
             const values = history
               .slice(Math.max(0, index - 25), index + 1)
-              .map((r) => ({ week: r.week, value: r.values[id] }))
+              .flatMap((r) => (r.values[id] == null ? [] : [{ week: r.week, value: r.values[id]! }]))
             return <Sparkline values={values} kind={metricById[id].kind} />
           },
         }),

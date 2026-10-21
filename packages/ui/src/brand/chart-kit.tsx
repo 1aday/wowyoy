@@ -43,6 +43,7 @@ import {
   type Channel,
   type MetricId,
   type MetricKind,
+  type MetricWeek,
   type WeekRow,
 } from "@workspace/metrics"
 import {
@@ -101,7 +102,7 @@ export function TrendChart({
   weeks = 26,
   className,
 }: {
-  rows: WeekRow[]
+  rows: readonly MetricWeek[]
   index: number
   metric: MetricId
   weeks?: number
@@ -114,7 +115,7 @@ export function TrendChart({
       const b = normalBand(rows, metric, k)
       out.push({
         week: rows[k]!.week,
-        value: rows[k]!.values[metric],
+        value: rows[k]!.values[metric] ?? null,
         lastYear: rows[k - 52]?.values[metric] ?? null,
         band: b ? [b.lo, b.hi] : null,
       })
@@ -122,7 +123,7 @@ export function TrendChart({
     return out
   }, [rows, index, metric, weeks])
   const last = data.at(-1)
-  const outside = last?.band && (last.value > last.band[1]! || last.value < last.band[0]!)
+  const outside = last?.band && last.value != null && (last.value > last.band[1]! || last.value < last.band[0]!)
   const config = {
     value: { label: "This year", color: INK },
     lastYear: { label: "Last year", color: GREY },
@@ -142,7 +143,7 @@ export function TrendChart({
         <Area dataKey="band" stroke="none" fill="var(--color-band)" fillOpacity={1} type="monotone" activeDot={false} />
         <Line dataKey="lastYear" stroke="var(--color-lastYear)" strokeWidth={2} strokeOpacity={0.55} dot={false} type="linear" />
         <Line dataKey="value" stroke="var(--color-value)" strokeWidth={2.5} dot={false} type="linear" activeDot={{ r: 5 }} />
-        {last && (
+        {last && last.value != null && (
           <ReferenceDot
             x={last.week}
             y={last.value}
@@ -229,9 +230,16 @@ export function ColumnsChart({
 
 /* 4. Revenue bridge: what moved revenue from last week to this week ---------- */
 
-export function bridgeSteps(rows: WeekRow[], index: number) {
-  const a = rows[index - 1]!.values
-  const b = rows[index]!.values
+const bridgeIds = ["sessions", "product_view_rate", "add_to_cart_rate", "checkout_start_rate", "checkout_completion_rate", "aov", "revenue"] as const
+
+/** True when a source has every step of the revenue bridge for these two weeks. */
+export function hasBridge(rows: readonly MetricWeek[], index: number) {
+  return index > 0 && bridgeIds.every((id) => (rows[index]?.values[id] ?? 0) > 0 && (rows[index - 1]?.values[id] ?? 0) > 0)
+}
+
+export function bridgeSteps(rows: readonly MetricWeek[], index: number) {
+  const a = rows[index - 1]!.values as Record<(typeof bridgeIds)[number], number>
+  const b = rows[index]!.values as Record<(typeof bridgeIds)[number], number>
   const steps: { name: string; ratio: number }[] = [
     { name: "Traffic", ratio: b.sessions / a.sessions },
     { name: "Product views", ratio: b.product_view_rate / a.product_view_rate },
@@ -257,7 +265,7 @@ export function bridgeSteps(rows: WeekRow[], index: number) {
   return out
 }
 
-export function BridgeChart({ rows, index, className }: { rows: WeekRow[]; index: number; className?: string }) {
+export function BridgeChart({ rows, index, className }: { rows: readonly MetricWeek[]; index: number; className?: string }) {
   const data = React.useMemo(() => bridgeSteps(rows, index), [rows, index])
   const lo = Math.min(...data.filter((d) => d.kind !== "total").map((d) => d.range[0]))
   const config = { range: { label: "Revenue", color: INK } } satisfies ChartConfig
