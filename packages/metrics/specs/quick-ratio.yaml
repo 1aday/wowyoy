@@ -1,0 +1,253 @@
+id: quick-ratio
+name: SaaS quick ratio
+aliases:
+  - Quick ratio
+  - MRR quick ratio
+  - Growth quick ratio
+family: subscription
+kind: ratio
+polarity: up-is-good
+
+definition:
+  one_line: Dollars of MRR gained for every dollar lost over the four weeks ending this Sunday, new plus expansion over churned plus contraction.
+  formula: (New MRR + expansion MRR) ÷ (churned MRR + contraction MRR), summed over the four weeks ending Sunday 23:59 UTC
+
+events:
+  - name: subscription_started
+    description: A subscription's first paid period began.
+    also_called: [Subscription Started, subscription_created]
+    properties:
+      - name: mrr
+        description: The new subscription's monthly amount.
+  - name: subscription_expanded
+    description: A paying subscription's monthly amount went up.
+    also_called: [Subscription Upgraded, plan_upgraded]
+    properties:
+      - name: mrr_delta
+        description: How much it rose, as a positive number.
+  - name: subscription_contracted
+    description: A paying subscription's monthly amount went down without ending.
+    also_called: [Subscription Downgraded, plan_downgraded]
+    properties:
+      - name: mrr_delta
+        description: How much it fell, as a positive number.
+  - name: subscription_canceled
+    description: A subscription stopped being billed.
+    also_called: [customer.subscription.deleted, Subscription Cancelled]
+    properties:
+      - name: mrr
+        description: The monthly amount it was paying before it ended.
+
+numerator:
+  label: New MRR, before expansion is added
+  aggregate: sum
+  event: subscription_started
+  property: mrr
+
+queries:
+  hogql: |-
+    -- SaaS quick ratio for each of the last 26 complete ISO weeks (Monday start, UTC), over the four weeks ending that Sunday: (new + expansion MRR) ÷ (churned + contraction MRR).
+    SELECT
+      toString(w.monday) AS week,
+      sum(f.gained) AS numerator,
+      sum(f.lost) AS denominator,
+      if(sum(f.lost) > 0, sum(f.gained) / sum(f.lost), NULL) AS value
+    FROM (
+      SELECT toMonday(now()) - toIntervalWeek(arrayJoin(range(1, 27))) AS monday
+    ) AS w
+    CROSS JOIN (
+      SELECT
+        toMonday(timestamp) AS monday,
+        coalesce(sumIf(toFloat(properties.mrr), event = 'subscription_started'), 0)
+          + coalesce(sumIf(toFloat(properties.mrr_delta), event = 'subscription_expanded'), 0) AS gained,
+        coalesce(sumIf(toFloat(properties.mrr), event = 'subscription_canceled'), 0)
+          + coalesce(sumIf(toFloat(properties.mrr_delta), event = 'subscription_contracted'), 0) AS lost
+      FROM events
+      WHERE event IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
+        AND timestamp >= toMonday(now()) - toIntervalWeek(29)
+        AND timestamp < toMonday(now())
+      GROUP BY monday
+    ) AS f
+    WHERE f.monday > w.monday - toIntervalWeek(4) AND f.monday <= w.monday
+    GROUP BY w.monday
+    ORDER BY w.monday
+  postgres: |-
+    -- SaaS quick ratio for each of the last 26 complete ISO weeks (Monday start, UTC), over the four weeks ending that Sunday: (new + expansion MRR) ÷ (churned + contraction MRR).
+    WITH flows AS (
+      SELECT
+        date_trunc('week', occurred_at)::date AS week,
+        coalesce(sum((properties->>'mrr')::numeric) FILTER (WHERE event_name = 'subscription_started'), 0)
+          + coalesce(sum((properties->>'mrr_delta')::numeric) FILTER (WHERE event_name = 'subscription_expanded'), 0) AS gained,
+        coalesce(sum((properties->>'mrr')::numeric) FILTER (WHERE event_name = 'subscription_canceled'), 0)
+          + coalesce(sum((properties->>'mrr_delta')::numeric) FILTER (WHERE event_name = 'subscription_contracted'), 0) AS lost
+      FROM events
+      WHERE event_name IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
+        AND occurred_at >= date_trunc('week', now()) - interval '29 weeks'
+        AND occurred_at < date_trunc('week', now())
+      GROUP BY 1
+    ),
+    weeks AS (
+      SELECT generate_series(
+        date_trunc('week', now()) - interval '26 weeks',
+        date_trunc('week', now()) - interval '1 week',
+        interval '1 week'
+      )::date AS week
+    )
+    SELECT
+      w.week,
+      sum(f.gained) AS numerator,
+      sum(f.lost) AS denominator,
+      sum(f.gained) / nullif(sum(f.lost), 0) AS value
+    FROM weeks AS w
+    JOIN flows AS f ON f.week > w.week - 28 AND f.week <= w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+  bigquery: |-
+    -- SaaS quick ratio for each of the last 26 complete ISO weeks (Monday start, UTC), over the four weeks ending that Sunday: (new + expansion MRR) ÷ (churned + contraction MRR).
+    WITH flows AS (
+      SELECT
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS monday,
+        COALESCE(SUM(IF(event_name = 'subscription_started', SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64), NULL)), 0)
+          + COALESCE(SUM(IF(event_name = 'subscription_expanded', SAFE_CAST(JSON_VALUE(properties, '$.mrr_delta') AS FLOAT64), NULL)), 0) AS gained,
+        COALESCE(SUM(IF(event_name = 'subscription_canceled', SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64), NULL)), 0)
+          + COALESCE(SUM(IF(event_name = 'subscription_contracted', SAFE_CAST(JSON_VALUE(properties, '$.mrr_delta') AS FLOAT64), NULL)), 0) AS lost
+      FROM events
+      WHERE event_name IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 29 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      GROUP BY monday
+    ),
+    weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(
+        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK),
+        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK),
+        INTERVAL 1 WEEK
+      )) AS week
+    )
+    SELECT
+      w.week AS week,
+      SUM(f.gained) AS numerator,
+      SUM(f.lost) AS denominator,
+      SAFE_DIVIDE(SUM(f.gained), SUM(f.lost)) AS value
+    FROM weeks AS w
+    JOIN flows AS f
+      ON f.monday > DATE_SUB(w.week, INTERVAL 4 WEEK) AND f.monday <= w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- SaaS quick ratio for each of the last 26 complete ISO weeks (Monday start, UTC), over the four weeks ending that Sunday: (new + expansion MRR) ÷ (churned + contraction MRR). Assumes WEEK_START = 1 (Monday).
+    WITH flows AS (
+      SELECT
+        DATE_TRUNC('week', occurred_at)::date AS monday,
+        COALESCE(SUM(IFF(event_name = 'subscription_started', properties:mrr::float, NULL)), 0)
+          + COALESCE(SUM(IFF(event_name = 'subscription_expanded', properties:mrr_delta::float, NULL)), 0) AS gained,
+        COALESCE(SUM(IFF(event_name = 'subscription_canceled', properties:mrr::float, NULL)), 0)
+          + COALESCE(SUM(IFF(event_name = 'subscription_contracted', properties:mrr_delta::float, NULL)), 0) AS lost
+      FROM events
+      WHERE event_name IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
+        AND occurred_at >= DATEADD(week, -29, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+      GROUP BY 1
+    ),
+    weeks AS (
+      SELECT DATEADD(week, -ROW_NUMBER() OVER (ORDER BY SEQ4()), DATE_TRUNC('week', CURRENT_DATE())) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    )
+    SELECT
+      w.week,
+      SUM(f.gained) AS numerator,
+      SUM(f.lost) AS denominator,
+      SUM(f.gained) / NULLIF(SUM(f.lost), 0) AS value
+    FROM weeks AS w
+    JOIN flows AS f
+      ON f.monday > DATEADD(week, -4, w.week) AND f.monday <= w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+
+noise:
+  type: process
+  min_denominator: 20
+  volume_unit: MRR movements in four weeks
+  typical: 2
+
+example:
+  business: saas
+  level: 2
+  volume: 180
+  trend: 0
+
+drivers:
+  - id: window-effects
+    label: Large movements entering or leaving the window
+    dropped:
+      check: Did one large cancellation or downgrade land in the four-week window?
+      yes: One loss is a big share of four weeks of lost MRR; the ratio recovers when it leaves the window four weeks later.
+    spiked:
+      check: Did lost MRR fall unusually low, so a small denominator inflates the ratio?
+      yes: Churned plus contraction MRR is well below its usual four-week level while gains hold.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Does the window cover the holidays, when purchases pause but renewals and cancellations don't?
+      yes: Gains fall while losses hold, and the same weeks last year show the same dip.
+    spiked:
+      check: Does the window cover a quarter end, when sales-led deals close?
+      yes: New MRR is concentrated in the closing week, as in earlier quarters.
+  - id: churn
+    label: Churned MRR
+    metric: churned-mrr
+    dropped:
+      check: Did cancellations rise over the four weeks?
+      yes: Churned MRR is above its usual range while gains hold.
+    spiked:
+      check: Did cancellations fall, or failed payments recover?
+      yes: Churned MRR is below its usual range while gains hold.
+  - id: new
+    label: New MRR
+    metric: new-mrr
+    dropped:
+      check: Did fewer customers start paying over the four weeks?
+      yes: New MRR is below its usual range while losses hold.
+    spiked:
+      check: Did a launch, a sales push or one large deal add new MRR?
+      yes: New MRR is above its usual range; check whether one customer is most of it.
+  - id: expansion
+    label: Expansion MRR
+    metric: expansion-mrr
+    dropped:
+      check: Did upgrades and seat additions slow?
+      yes: Expansion MRR is below its usual range while new and lost MRR hold.
+    spiked:
+      check: Did a price change or a usage limit push customers to upgrade?
+      yes: Expansion MRR jumps from the week the change shipped.
+  - id: contraction
+    label: Contraction MRR
+    breakdown: plan
+    dropped:
+      check: Did more customers move to cheaper plans or fewer seats?
+      yes: Contraction rises, often in one plan or after customers' own budget cuts.
+    spiked:
+      check: Did downgrades slow?
+      yes: Contraction falls below its usual range while cancellations hold.
+
+diagnose_order: [window-effects, calendar, churn, new, expansion, contraction]
+
+related: [net-new-mrr, new-mrr, expansion-mrr, churned-mrr, net-revenue-retention]
+
+prose:
+  why_it_matters: >-
+    The quick ratio, popularised by Mamoon Hamid at Social Capital, says how efficiently a
+    subscription business grows: how many dollars of MRR it adds for each one it loses. Below 1
+    it is shrinking; above 4 is the usual mark of efficient early-stage growth. Two companies
+    adding the same net new MRR can sit at 1.5 and at 6, and only one of them can keep it up.
+  pitfalls:
+    - One week has too few movements for a stable ratio, and one quiet week of churn sends it past 10. This spec sums four weeks.
+    - The ratio says nothing about scale. A 4 on $500 of losses and a 4 on $50,000 are different businesses, so read it next to net new MRR.
+    - Leaving contraction out of the denominator flatters companies whose customers downgrade rather than cancel.
+    - A mature company with low churn and slow sales can have the same ratio as a fast-growing one with high churn. Compare against your own history, not a universal threshold.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

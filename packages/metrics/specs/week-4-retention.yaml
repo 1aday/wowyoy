@@ -1,0 +1,241 @@
+id: week-4-retention
+name: Week 4 retention
+aliases:
+  - W4 retention
+  - Week four retention
+  - Fourth-week retention
+family: engagement
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of new people still active in their fifth week, between 28 and 35 days after their first event, by the week they arrived.
+  formula: People with any event from 28 to 35 days after their first event (days 28–34, hours 672 to 840) ÷ people whose first event fell in the cohort week
+
+events:
+  - name: "*"
+    description: Any event a person sends. A person's first ever event places them in a cohort; any later event counts as a return.
+    also_called: [All events, Any event, Active event]
+    properties:
+      - name: $os
+        description: The operating system, for splitting by platform.
+      - name: utm_source
+        description: The campaign source a person arrived from, for splitting by acquisition channel.
+
+numerator:
+  label: New people active again 28 to 35 days later
+  aggregate: returning_users
+  event: "*"
+
+queries:
+  hogql: |-
+    -- Week 4 retention for the 26 most recent mature cohorts (ISO weeks, Monday start, UTC, the latest starting six weeks before this one): of the people whose first event fell in the cohort week, the share with any event 28 to 35 days after it. Younger cohorts are left out until their window has closed.
+    SELECT
+      toString(cohort) AS week,
+      sum(retained) AS numerator,
+      count() AS denominator,
+      sum(retained) / count() AS value
+    FROM (
+      SELECT
+        f.person_id AS person,
+        toMonday(f.first_at) AS cohort,
+        max(if(e.ts >= f.first_at + toIntervalDay(28) AND e.ts < f.first_at + toIntervalDay(35), 1, 0)) AS retained
+      FROM (
+        SELECT person_id, min(timestamp) AS first_at
+        FROM events
+        WHERE timestamp < toMonday(now())
+        GROUP BY person_id
+      ) AS f
+      INNER JOIN (
+        SELECT person_id, timestamp AS ts
+        FROM events
+        WHERE timestamp >= toMonday(now()) - toIntervalWeek(31)
+          AND timestamp < toMonday(now())
+      ) AS e ON e.person_id = f.person_id
+      WHERE f.first_at >= toMonday(now()) - toIntervalWeek(31)
+        AND f.first_at < toMonday(now()) - toIntervalWeek(5)
+      GROUP BY person, cohort
+    )
+    GROUP BY cohort
+    ORDER BY cohort
+  postgres: |-
+    -- Week 4 retention for the 26 most recent mature cohorts (ISO weeks, Monday start, UTC, the latest starting six weeks before this one): of the people whose first event fell in the cohort week, the share with any event 28 to 35 days after it. Younger cohorts are left out until their window has closed.
+    WITH firsts AS (
+      SELECT user_id, min(occurred_at) AS first_at
+      FROM events
+      WHERE user_id IS NOT NULL
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT user_id, first_at, date_trunc('week', first_at)::date AS week
+      FROM firsts
+      WHERE first_at >= date_trunc('week', now()) - interval '31 weeks'
+        AND first_at < date_trunc('week', now()) - interval '5 weeks'
+    ),
+    retained AS (
+      SELECT DISTINCT c.user_id
+      FROM cohort AS c
+      JOIN events AS e
+        ON e.user_id = c.user_id
+       AND e.occurred_at >= c.first_at + interval '28 days'
+       AND e.occurred_at < c.first_at + interval '35 days'
+    )
+    SELECT
+      c.week,
+      count(r.user_id) AS numerator,
+      count(*) AS denominator,
+      count(r.user_id)::numeric / count(*) AS value
+    FROM cohort AS c
+    LEFT JOIN retained AS r ON r.user_id = c.user_id
+    GROUP BY c.week
+    ORDER BY c.week;
+  bigquery: |-
+    -- Week 4 retention for the 26 most recent mature cohorts (ISO weeks, Monday start, UTC, the latest starting six weeks before this one): of the people whose first event fell in the cohort week, the share with any event 28 to 35 days after it. Younger cohorts are left out until their window has closed.
+    WITH firsts AS (
+      SELECT user_id, MIN(occurred_at) AS first_at
+      FROM events
+      WHERE user_id IS NOT NULL
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT user_id, first_at, DATE_TRUNC(DATE(first_at), ISOWEEK) AS week
+      FROM firsts
+      WHERE first_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 31 WEEK))
+        AND first_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 5 WEEK))
+    ),
+    retained AS (
+      SELECT DISTINCT c.user_id
+      FROM cohort AS c
+      JOIN events AS e
+        ON e.user_id = c.user_id
+       AND e.occurred_at >= TIMESTAMP_ADD(c.first_at, INTERVAL 28 DAY)
+       AND e.occurred_at < TIMESTAMP_ADD(c.first_at, INTERVAL 35 DAY)
+    )
+    SELECT
+      c.week,
+      COUNT(r.user_id) AS numerator,
+      COUNT(*) AS denominator,
+      SAFE_DIVIDE(COUNT(r.user_id), COUNT(*)) AS value
+    FROM cohort AS c
+    LEFT JOIN retained AS r ON r.user_id = c.user_id
+    GROUP BY c.week
+    ORDER BY c.week;
+  snowflake: |-
+    -- Week 4 retention for the 26 most recent mature cohorts (ISO weeks, Monday start, UTC, the latest starting six weeks before this one): of the people whose first event fell in the cohort week, the share with any event 28 to 35 days after it. Younger cohorts are left out until their window has closed. Assumes WEEK_START = 1 (Monday).
+    WITH firsts AS (
+      SELECT user_id, MIN(occurred_at) AS first_at
+      FROM events
+      WHERE user_id IS NOT NULL
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT user_id, first_at, DATE_TRUNC('week', first_at)::date AS week
+      FROM firsts
+      WHERE first_at >= DATEADD(week, -31, DATE_TRUNC('week', CURRENT_DATE()))
+        AND first_at < DATEADD(week, -5, DATE_TRUNC('week', CURRENT_DATE()))
+    ),
+    retained AS (
+      SELECT DISTINCT c.user_id
+      FROM cohort AS c
+      JOIN events AS e
+        ON e.user_id = c.user_id
+       AND e.occurred_at >= DATEADD(day, 28, c.first_at)
+       AND e.occurred_at < DATEADD(day, 35, c.first_at)
+    )
+    SELECT
+      c.week,
+      COUNT(r.user_id) AS numerator,
+      COUNT(*) AS denominator,
+      COUNT(r.user_id) / NULLIF(COUNT(*), 0) AS value
+    FROM cohort AS c
+    LEFT JOIN retained AS r ON r.user_id = c.user_id
+    GROUP BY c.week
+    ORDER BY c.week;
+
+noise:
+  type: process
+  min_denominator: 100
+  volume_unit: new people in the cohort
+  typical: 0.16
+
+example:
+  business: app
+  level: 0.16
+  volume: 8200
+  trend: 0.03
+
+drivers:
+  - id: identity
+    label: Identity and tracking
+    dropped:
+      check: Did returning people start appearing as new, for example after an SDK, login or identity change?
+      yes: New people jump and their retention falls from the same date, with no change in sign-ups.
+    spiked:
+      check: Did a tracking change stop counting one-time visitors as new people?
+      yes: Cohorts shrink from one date, mostly people with a single event, and retention rises with no product change.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Did the cohort's fifth week fall over a holiday?
+      yes: Cohorts whose days 28 to 35 overlap a holiday retain less, and the next cohort recovers.
+    spiked:
+      check: Did the cohort arrive in a high-intent season, such as the new year for a budgeting app?
+      yes: The same cohorts last year retained better too.
+  - id: week-1
+    label: Week 1 retention of the same cohorts
+    metric: week-1-retention
+    dropped:
+      check: Did the same cohorts already retain worse in their second week?
+      yes: Week 1 retention fell for the same cohorts by a similar share, so the cause is in the first days.
+    spiked:
+      check: Did the same cohorts already retain better in their second week?
+      yes: Week 1 retention rose for the same cohorts, and the gain carried through.
+  - id: acquisition-mix
+    label: Where new people came from
+    breakdown: utm_source
+    dropped:
+      check: Did more of the cohort come from a broad or low-intent source?
+      yes: One source grew its share of new people and retains far below the others by week 4.
+    spiked:
+      check: Did a high-intent source such as referrals grow its share?
+      yes: The mix shifted toward sources that always retain better; each source's own rate is flat.
+  - id: platform
+    label: Platform and releases
+    breakdown: $os
+    feed: app-stores
+    dropped:
+      check: Did a release in the cohort's first month break something on one platform?
+      yes: Retention falls for cohorts on one platform or app version only.
+    spiked:
+      check: Did a release improve the product on one platform during the cohort's first month?
+      yes: Retention rises for cohorts on that platform from the release date.
+  - id: habit-feature
+    label: The feature that keeps people
+    metric: feature-adoption-rate
+    dropped:
+      check: Did fewer of the cohort adopt the feature that long-term users rely on?
+      yes: Adoption of that feature in the cohort's first weeks fell before week 4 retention did.
+    spiked:
+      check: Did more of the cohort adopt that feature early, for example after it moved into onboarding?
+      yes: Early adoption rose for the same cohorts and week 4 retention followed.
+
+diagnose_order: [identity, calendar, week-1, acquisition-mix, platform, habit-feature]
+
+related: [week-1-retention, stickiness, activation-rate, mau, customer-lifetime-value]
+
+prose:
+  why_it_matters: >-
+    Week 4 retention shows who is left once the novelty wears off: people still active a month
+    after arriving are the ones a product tends to keep for months. Retention curves usually
+    flatten around here, so this is close to the share of each cohort the product keeps for good.
+    It is slow by nature, because a cohort's week 4 is known only six weeks after it starts arriving.
+  pitfalls:
+    - Week 4 here means 28 to 35 days after each person's own first event. Tools that use calendar weeks or day 30 report different numbers, so compare like with like.
+    - Cohorts younger than six weeks haven't had their full window yet, and reading them early shows a drop that isn't there. Only mature cohorts are reported.
+    - Any event counts as active, so a push notification received in week 4 can count as retained. Count only events a person chooses to send.
+    - A strong acquisition month can lower the rate by adding casual users while the number of people retained rises. Read the retained count beside the rate.
+
+reviewed_by: null
+reviewed_at: null
+version: 1
