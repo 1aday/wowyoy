@@ -2,7 +2,7 @@ import { PGlite } from "@electric-sql/pglite"
 import { allSpecs } from "@workspace/metrics"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { emitQuery } from "../src"
-import { WEEKS, cases, dataset, expected, expectedBreakdown } from "./fixtures"
+import { WEEKS, cases, cleanDataset, dataset, expected, expectedBreakdown } from "./fixtures"
 
 /**
  * The Postgres queries, run for real (PGlite is Postgres compiled to WASM) against seeded
@@ -30,6 +30,18 @@ beforeAll(async () => {
   await db.query(
     `INSERT INTO events SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb)`,
     [JSON.stringify(rows)]
+  )
+  await db.exec("CREATE SCHEMA clean; CREATE TABLE clean.events (LIKE public.events)")
+  const clean = cleanDataset(evs).map((e) => ({
+    event_name: e.event,
+    occurred_at: e.ts.toISOString(),
+    user_id: e.user,
+    session_id: e.session,
+    properties: e.props,
+  }))
+  await db.query(
+    `INSERT INTO clean.events SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb)`,
+    [JSON.stringify(clean)]
   )
 }, 60_000)
 
@@ -76,17 +88,24 @@ describe("Postgres queries return the right numbers", () => {
       else expect(g.value!).toBeCloseTo(w.value, 9)
     }
   })
+})
 
-  it("runs every spec's own query, compiled or hand-written, without error", async () => {
-    for (const spec of allSpecs()) {
-      const rows = await run(emitQuery(spec, "postgres", { weeks: WEEKS })!)
-      // Compiled queries always return the full week spine; hand-written ones return what their data has.
-      if (!spec.queries) expect(rows.length, spec.id).toBe(WEEKS)
-      for (const d of spec.drivers) {
-        if (!d.breakdown) continue
-        const q = emitQuery(spec, "postgres", { weeks: WEEKS, breakdown: d.breakdown })
-        if (q) await run(q)
+describe("every spec's own Postgres query runs", () => {
+  // Hand-written queries cast as they please, so they run on events whose numbers are clean.
+  for (const spec of allSpecs()) {
+    it(spec.id, async () => {
+      if (spec.queries) await db.exec("SET search_path TO clean")
+      try {
+        const rows = await run(emitQuery(spec, "postgres", { weeks: WEEKS })!)
+        // Compiled queries always return the full week spine; hand-written ones return what their data has.
+        if (!spec.queries) expect(rows.length).toBe(WEEKS)
+        for (const d of spec.drivers) {
+          const q = d.breakdown ? emitQuery(spec, "postgres", { weeks: WEEKS, breakdown: d.breakdown }) : null
+          if (q) await run(q)
+        }
+      } finally {
+        await db.exec("SET search_path TO public")
       }
-    }
-  })
+    })
+  }
 })

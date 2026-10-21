@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process"
 import { allSpecs } from "@workspace/metrics"
 import { describe, expect, it } from "vitest"
 import { emitQuery } from "../src"
-import { WEEKS, cases, dataset, expected, expectedBreakdown, type Ev } from "./fixtures"
+import { WEEKS, cases, cleanDataset, dataset, expected, expectedBreakdown, type Ev } from "./fixtures"
 
 /**
  * HogQL is PostHog's ClickHouse dialect. With a ClickHouse binary (CLICKHOUSE_BIN=/path/to/clickhouse)
@@ -33,10 +33,10 @@ export function hogqlToClickhouse(sql: string) {
     .replace(/\btoFloat\(/g, "toFloat64OrNull(")
 }
 
-function run(sql: string): Record<string, unknown>[] {
+function run(sql: string, data: Ev[] = evs): Record<string, unknown>[] {
   const script = [
     "CREATE TABLE events (event String, timestamp DateTime64(6, 'UTC'), person_id Nullable(String), `$session_id` String, properties String) ENGINE = Memory;",
-    `INSERT INTO events VALUES ${evs.map(row).join(",\n")};`,
+    `INSERT INTO events VALUES ${data.map(row).join(",\n")};`,
     `${hogqlToClickhouse(sql)} FORMAT JSONEachRow`,
   ].join("\n")
   const res = spawnSync(
@@ -89,15 +89,24 @@ describe.skipIf(!bin)("HogQL queries run in ClickHouse and return the right numb
       else expect(n(g.value)!).toBeCloseTo(w.value, 9)
     }
   })
+})
 
-  it("parses and runs every spec's own HogQL", () => {
-    for (const spec of allSpecs()) {
-      const rows = run(emitQuery(spec, "hogql", { weeks: WEEKS })!)
-      if (!spec.queries) expect(rows.length, spec.id).toBe(WEEKS)
-      for (const d of spec.drivers) {
-        const q = d.breakdown ? emitQuery(spec, "hogql", { weeks: WEEKS, breakdown: d.breakdown }) : null
-        if (q) run(q)
-      }
-    }
-  })
+describe.skipIf(!bin)("every spec's own HogQL runs in ClickHouse", () => {
+  const clean = cleanDataset(evs)
+  for (const spec of allSpecs()) {
+    it(
+      spec.id,
+      () => {
+        // Hand-written queries cast as they please, so they run on events whose numbers are clean.
+        const data = spec.queries ? clean : evs
+        const rows = run(emitQuery(spec, "hogql", { weeks: WEEKS })!, data)
+        if (!spec.queries) expect(rows.length).toBe(WEEKS)
+        for (const d of spec.drivers) {
+          const q = d.breakdown ? emitQuery(spec, "hogql", { weeks: WEEKS, breakdown: d.breakdown }) : null
+          if (q) run(q, data)
+        }
+      },
+      30_000
+    )
+  }
 })

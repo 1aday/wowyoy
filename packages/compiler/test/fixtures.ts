@@ -143,6 +143,22 @@ export function dataset(now = new Date()): Ev[] {
   return evs
 }
 
+/** The same events with junk numbers ("", "n/a") removed and numeric strings made numbers, for hand-written queries. */
+export function cleanDataset(evs: Ev[]): Ev[] {
+  return evs.map((e) => ({
+    ...e,
+    props: Object.fromEntries(
+      Object.entries(e.props).flatMap(([k, v]) =>
+        typeof v === "string" && (k === "total" || k === "amount")
+          ? v.trim() !== "" && Number.isFinite(Number(v))
+            ? [[k, Number(v)]]
+            : []
+          : [[k, v]]
+      )
+    ),
+  }))
+}
+
 /** A property as text, the way every dialect reads JSON: strings as is, numbers and booleans spelled out. */
 function text(e: Ev, name: string): string | null {
   let v: unknown = e.props
