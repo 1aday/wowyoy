@@ -47,96 +47,134 @@ numerator:
 
 queries:
   hogql: |-
-    -- Net new MRR for each of the last 26 complete ISO weeks (Monday start, UTC): new + expansion − contraction − churned MRR, each from its event in that week.
+    -- Net new MRR per week: new + expansion − contraction − churned MRR, each from its event in that week. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
     SELECT
-      toString(monday) AS week,
-      new_mrr,
-      expansion_mrr,
-      contraction_mrr,
-      churned_mrr,
+      w.week AS week,
+      coalesce(f.new_mrr, 0) AS new_mrr,
+      coalesce(f.expansion_mrr, 0) AS expansion_mrr,
+      coalesce(f.contraction_mrr, 0) AS contraction_mrr,
+      coalesce(f.churned_mrr, 0) AS churned_mrr,
       new_mrr + expansion_mrr - contraction_mrr - churned_mrr AS value
     FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
       SELECT
-        toMonday(timestamp) AS monday,
-        coalesce(sumIf(toFloat(properties.mrr), event = 'subscription_started'), 0) AS new_mrr,
-        coalesce(sumIf(toFloat(properties.mrr_delta), event = 'subscription_expanded'), 0) AS expansion_mrr,
-        coalesce(sumIf(toFloat(properties.mrr_delta), event = 'subscription_contracted'), 0) AS contraction_mrr,
-        coalesce(sumIf(toFloat(properties.mrr), event = 'subscription_canceled'), 0) AS churned_mrr
+        toMonday(toTimeZone(timestamp, 'UTC')) AS week,
+        sumIf(toFloat(properties.mrr), event = 'subscription_started') AS new_mrr,
+        sumIf(toFloat(properties.mrr_delta), event = 'subscription_expanded') AS expansion_mrr,
+        sumIf(toFloat(properties.mrr_delta), event = 'subscription_contracted') AS contraction_mrr,
+        sumIf(toFloat(properties.mrr), event = 'subscription_canceled') AS churned_mrr
       FROM events
       WHERE event IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
-        AND timestamp >= toMonday(now()) - toIntervalWeek(26)
-        AND timestamp < toMonday(now())
-      GROUP BY monday
-    )
-    ORDER BY monday
+        AND timestamp >= now() - toIntervalWeek(27)
+        AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+      GROUP BY week
+    ) AS f ON f.week = w.week
+    ORDER BY week
   postgres: |-
-    -- Net new MRR for each of the last 26 complete ISO weeks (Monday start, UTC): new + expansion − contraction − churned MRR, each from its event in that week.
-    SELECT
-      week,
-      new_mrr,
-      expansion_mrr,
-      contraction_mrr,
-      churned_mrr,
-      new_mrr + expansion_mrr - contraction_mrr - churned_mrr AS value
-    FROM (
+    -- Net new MRR per week: new + expansion − contraction − churned MRR, each from its event in that week. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    flows AS (
       SELECT
-        date_trunc('week', occurred_at)::date AS week,
-        coalesce(sum(CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END) FILTER (WHERE event_name = 'subscription_started'), 0) AS new_mrr,
-        coalesce(sum(CASE WHEN properties->>'mrr_delta' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr_delta')::numeric END) FILTER (WHERE event_name = 'subscription_expanded'), 0) AS expansion_mrr,
-        coalesce(sum(CASE WHEN properties->>'mrr_delta' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr_delta')::numeric END) FILTER (WHERE event_name = 'subscription_contracted'), 0) AS contraction_mrr,
-        coalesce(sum(CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END) FILTER (WHERE event_name = 'subscription_canceled'), 0) AS churned_mrr
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week,
+        sum(CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END) FILTER (WHERE event_name = 'subscription_started') AS new_mrr,
+        sum(CASE WHEN properties->>'mrr_delta' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr_delta')::numeric END) FILTER (WHERE event_name = 'subscription_expanded') AS expansion_mrr,
+        sum(CASE WHEN properties->>'mrr_delta' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr_delta')::numeric END) FILTER (WHERE event_name = 'subscription_contracted') AS contraction_mrr,
+        sum(CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END) FILTER (WHERE event_name = 'subscription_canceled') AS churned_mrr
       FROM events
       WHERE event_name IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
-        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
-        AND occurred_at < date_trunc('week', now())
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
       GROUP BY 1
-    ) AS flows
+    ),
+    totals AS (
+      SELECT
+        w.week,
+        coalesce(f.new_mrr, 0) AS new_mrr,
+        coalesce(f.expansion_mrr, 0) AS expansion_mrr,
+        coalesce(f.contraction_mrr, 0) AS contraction_mrr,
+        coalesce(f.churned_mrr, 0) AS churned_mrr
+      FROM weeks AS w
+      LEFT JOIN flows AS f ON f.week = w.week
+    )
+    SELECT week, new_mrr, expansion_mrr, contraction_mrr, churned_mrr, new_mrr + expansion_mrr - contraction_mrr - churned_mrr AS value
+    FROM totals
     ORDER BY week;
   bigquery: |-
-    -- Net new MRR for each of the last 26 complete ISO weeks (Monday start, UTC): new + expansion − contraction − churned MRR, each from its event in that week.
-    SELECT
-      week,
-      new_mrr,
-      expansion_mrr,
-      contraction_mrr,
-      churned_mrr,
-      new_mrr + expansion_mrr - contraction_mrr - churned_mrr AS value
-    FROM (
+    -- Net new MRR per week: new + expansion − contraction − churned MRR, each from its event in that week. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    flows AS (
       SELECT
         DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
-        COALESCE(SUM(IF(event_name = 'subscription_started', SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64), NULL)), 0) AS new_mrr,
-        COALESCE(SUM(IF(event_name = 'subscription_expanded', SAFE_CAST(JSON_VALUE(properties, '$.mrr_delta') AS FLOAT64), NULL)), 0) AS expansion_mrr,
-        COALESCE(SUM(IF(event_name = 'subscription_contracted', SAFE_CAST(JSON_VALUE(properties, '$.mrr_delta') AS FLOAT64), NULL)), 0) AS contraction_mrr,
-        COALESCE(SUM(IF(event_name = 'subscription_canceled', SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64), NULL)), 0) AS churned_mrr
+        SUM(IF(event_name = 'subscription_started', SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64), NULL)) AS new_mrr,
+        SUM(IF(event_name = 'subscription_expanded', SAFE_CAST(JSON_VALUE(properties, '$.mrr_delta') AS FLOAT64), NULL)) AS expansion_mrr,
+        SUM(IF(event_name = 'subscription_contracted', SAFE_CAST(JSON_VALUE(properties, '$.mrr_delta') AS FLOAT64), NULL)) AS contraction_mrr,
+        SUM(IF(event_name = 'subscription_canceled', SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64), NULL)) AS churned_mrr
       FROM events
       WHERE event_name IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
         AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
         AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
       GROUP BY week
+    ),
+    totals AS (
+      SELECT
+        w.week,
+        COALESCE(f.new_mrr, 0) AS new_mrr,
+        COALESCE(f.expansion_mrr, 0) AS expansion_mrr,
+        COALESCE(f.contraction_mrr, 0) AS contraction_mrr,
+        COALESCE(f.churned_mrr, 0) AS churned_mrr
+      FROM weeks AS w
+      LEFT JOIN flows AS f ON f.week = w.week
     )
+    SELECT week, new_mrr, expansion_mrr, contraction_mrr, churned_mrr, new_mrr + expansion_mrr - contraction_mrr - churned_mrr AS value
+    FROM totals
     ORDER BY week;
   snowflake: |-
-    -- Net new MRR for each of the last 26 complete ISO weeks (Monday start, UTC): new + expansion − contraction − churned MRR, each from its event in that week. Assumes WEEK_START = 1 (Monday).
-    SELECT
-      week,
-      new_mrr,
-      expansion_mrr,
-      contraction_mrr,
-      churned_mrr,
-      new_mrr + expansion_mrr - contraction_mrr - churned_mrr AS value
-    FROM (
+    -- Net new MRR per week: new + expansion − contraction − churned MRR, each from its event in that week. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    flows AS (
       SELECT
-        DATE_TRUNC('week', occurred_at)::date AS week,
-        COALESCE(SUM(IFF(event_name = 'subscription_started', properties:mrr::float, NULL)), 0) AS new_mrr,
-        COALESCE(SUM(IFF(event_name = 'subscription_expanded', properties:mrr_delta::float, NULL)), 0) AS expansion_mrr,
-        COALESCE(SUM(IFF(event_name = 'subscription_contracted', properties:mrr_delta::float, NULL)), 0) AS contraction_mrr,
-        COALESCE(SUM(IFF(event_name = 'subscription_canceled', properties:mrr::float, NULL)), 0) AS churned_mrr
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week,
+        SUM(IFF(event_name = 'subscription_started', TRY_TO_DOUBLE(properties:"mrr"::string), NULL)) AS new_mrr,
+        SUM(IFF(event_name = 'subscription_expanded', TRY_TO_DOUBLE(properties:"mrr_delta"::string), NULL)) AS expansion_mrr,
+        SUM(IFF(event_name = 'subscription_contracted', TRY_TO_DOUBLE(properties:"mrr_delta"::string), NULL)) AS contraction_mrr,
+        SUM(IFF(event_name = 'subscription_canceled', TRY_TO_DOUBLE(properties:"mrr"::string), NULL)) AS churned_mrr
       FROM events
       WHERE event_name IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
-        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
-        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
       GROUP BY 1
+    ),
+    totals AS (
+      SELECT
+        w.week,
+        COALESCE(f.new_mrr, 0) AS new_mrr,
+        COALESCE(f.expansion_mrr, 0) AS expansion_mrr,
+        COALESCE(f.contraction_mrr, 0) AS contraction_mrr,
+        COALESCE(f.churned_mrr, 0) AS churned_mrr
+      FROM weeks AS w
+      LEFT JOIN flows AS f ON f.week = w.week
     )
+    SELECT week, new_mrr, expansion_mrr, contraction_mrr, churned_mrr, new_mrr + expansion_mrr - contraction_mrr - churned_mrr AS value
+    FROM totals
     ORDER BY week;
 
 noise:

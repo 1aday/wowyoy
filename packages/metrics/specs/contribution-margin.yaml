@@ -44,75 +44,130 @@ numerator:
 
 queries:
   hogql: |-
-    -- Contribution margin: net revenue − cost of goods − ad spend. One row per complete week, last 26 weeks.
+    -- Contribution margin per week: net revenue (order totals − refunds) − cost of goods − ad spend. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
     SELECT
-      toMonday(timestamp) AS week,
-      sumIf(toFloat(properties.total), event = 'order_completed') - sumIf(toFloat(properties.amount), event = 'order_refunded') AS net_revenue,
-      sumIf(toFloat(properties.cost_of_goods), event = 'order_completed') AS cost_of_goods,
-      sumIf(toFloat(properties.spend), event = 'ad_spend') AS ad_spend,
+      w.week AS week,
+      coalesce(m.net_revenue, 0) AS net_revenue,
+      coalesce(m.cost_of_goods, 0) AS cost_of_goods,
+      coalesce(m.ad_spend, 0) AS ad_spend,
       net_revenue - cost_of_goods - ad_spend AS value
-    FROM events
-    WHERE event IN ('order_completed', 'order_refunded', 'ad_spend')
-      AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
-      AND timestamp < toStartOfWeek(now(), 1)
-    GROUP BY week
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT
+        toMonday(toTimeZone(timestamp, 'UTC')) AS week,
+        coalesce(sumIf(toFloat(properties.total), event = 'order_completed'), 0)
+          - coalesce(sumIf(toFloat(properties.amount), event = 'order_refunded'), 0) AS net_revenue,
+        sumIf(toFloat(properties.cost_of_goods), event = 'order_completed') AS cost_of_goods,
+        sumIf(toFloat(properties.spend), event = 'ad_spend') AS ad_spend
+      FROM events
+      WHERE event IN ('order_completed', 'order_refunded', 'ad_spend')
+        AND timestamp >= now() - toIntervalWeek(27)
+        AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+      GROUP BY week
+    ) AS m ON m.week = w.week
     ORDER BY week
   postgres: |-
-    -- Contribution margin: net revenue − cost of goods − ad spend. One row per complete week, last 26 weeks.
-    -- Postgres. Assumes events(event_name, occurred_at, user_id, session_id, properties): one row per event, occurred_at in UTC, properties as JSON.
-    WITH weekly AS (
+    -- Contribution margin per week: net revenue (order totals − refunds) − cost of goods − ad spend. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    weekly AS (
       SELECT
-        date_trunc('week', occurred_at)::date AS week,
-        coalesce(sum(CASE WHEN properties->>'total' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN CASE WHEN properties->>'total' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'total')::numeric END END) FILTER (WHERE event_name = 'order_completed'), 0)
-          - coalesce(sum(CASE WHEN properties->>'amount' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN CASE WHEN properties->>'amount' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'amount')::numeric END END) FILTER (WHERE event_name = 'order_refunded'), 0) AS net_revenue,
-        coalesce(sum(CASE WHEN properties->>'cost_of_goods' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN CASE WHEN properties->>'cost_of_goods' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'cost_of_goods')::numeric END END) FILTER (WHERE event_name = 'order_completed'), 0) AS cost_of_goods,
-        coalesce(sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END END) FILTER (WHERE event_name = 'ad_spend'), 0) AS ad_spend
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week,
+        coalesce(sum(CASE WHEN properties->>'total' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'total')::numeric END) FILTER (WHERE event_name = 'order_completed'), 0)
+          - coalesce(sum(CASE WHEN properties->>'amount' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'amount')::numeric END) FILTER (WHERE event_name = 'order_refunded'), 0) AS net_revenue,
+        sum(CASE WHEN properties->>'cost_of_goods' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'cost_of_goods')::numeric END) FILTER (WHERE event_name = 'order_completed') AS cost_of_goods,
+        sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END) FILTER (WHERE event_name = 'ad_spend') AS ad_spend
       FROM events
       WHERE event_name IN ('order_completed', 'order_refunded', 'ad_spend')
-        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
-        AND occurred_at < date_trunc('week', now())
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
       GROUP BY 1
+    ),
+    totals AS (
+      SELECT
+        w.week,
+        coalesce(m.net_revenue, 0) AS net_revenue,
+        coalesce(m.cost_of_goods, 0) AS cost_of_goods,
+        coalesce(m.ad_spend, 0) AS ad_spend
+      FROM weeks AS w
+      LEFT JOIN weekly AS m ON m.week = w.week
     )
     SELECT week, net_revenue, cost_of_goods, ad_spend, net_revenue - cost_of_goods - ad_spend AS value
-    FROM weekly
+    FROM totals
     ORDER BY week;
   bigquery: |-
-    -- Contribution margin: net revenue − cost of goods − ad spend. One row per complete week, last 26 weeks.
-    -- BigQuery. Assumes events(event_name, occurred_at, user_id, session_id, properties): one row per event, occurred_at in UTC, properties as JSON.
-    WITH weekly AS (
+    -- Contribution margin per week: net revenue (order totals − refunds) − cost of goods − ad spend. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    weekly AS (
       SELECT
         DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
         COALESCE(SUM(IF(event_name = 'order_completed', SAFE_CAST(JSON_VALUE(properties, '$.total') AS FLOAT64), NULL)), 0)
           - COALESCE(SUM(IF(event_name = 'order_refunded', SAFE_CAST(JSON_VALUE(properties, '$.amount') AS FLOAT64), NULL)), 0) AS net_revenue,
-        COALESCE(SUM(IF(event_name = 'order_completed', SAFE_CAST(JSON_VALUE(properties, '$.cost_of_goods') AS FLOAT64), NULL)), 0) AS cost_of_goods,
-        COALESCE(SUM(IF(event_name = 'ad_spend', SAFE_CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64), NULL)), 0) AS ad_spend
+        SUM(IF(event_name = 'order_completed', SAFE_CAST(JSON_VALUE(properties, '$.cost_of_goods') AS FLOAT64), NULL)) AS cost_of_goods,
+        SUM(IF(event_name = 'ad_spend', SAFE_CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64), NULL)) AS ad_spend
       FROM events
       WHERE event_name IN ('order_completed', 'order_refunded', 'ad_spend')
         AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
         AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
       GROUP BY week
+    ),
+    totals AS (
+      SELECT
+        w.week,
+        COALESCE(m.net_revenue, 0) AS net_revenue,
+        COALESCE(m.cost_of_goods, 0) AS cost_of_goods,
+        COALESCE(m.ad_spend, 0) AS ad_spend
+      FROM weeks AS w
+      LEFT JOIN weekly AS m ON m.week = w.week
     )
     SELECT week, net_revenue, cost_of_goods, ad_spend, net_revenue - cost_of_goods - ad_spend AS value
-    FROM weekly
+    FROM totals
     ORDER BY week;
   snowflake: |-
-    -- Contribution margin: net revenue − cost of goods − ad spend. One row per complete week, last 26 weeks.
-    -- Snowflake. Assumes WEEK_START = 1 (Monday) and events(event_name, occurred_at, user_id, session_id, properties), occurred_at in UTC.
-    WITH weekly AS (
+    -- Contribution margin per week: net revenue (order totals − refunds) − cost of goods − ad spend. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    weekly AS (
       SELECT
-        DATE_TRUNC('week', occurred_at)::date AS week,
-        COALESCE(SUM(IFF(event_name = 'order_completed', properties:"total"::float, NULL)), 0)
-          - COALESCE(SUM(IFF(event_name = 'order_refunded', properties:"amount"::float, NULL)), 0) AS net_revenue,
-        COALESCE(SUM(IFF(event_name = 'order_completed', properties:"cost_of_goods"::float, NULL)), 0) AS cost_of_goods,
-        COALESCE(SUM(IFF(event_name = 'ad_spend', properties:"spend"::float, NULL)), 0) AS ad_spend
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week,
+        COALESCE(SUM(IFF(event_name = 'order_completed', TRY_TO_DOUBLE(properties:"total"::string), NULL)), 0)
+          - COALESCE(SUM(IFF(event_name = 'order_refunded', TRY_TO_DOUBLE(properties:"amount"::string), NULL)), 0) AS net_revenue,
+        SUM(IFF(event_name = 'order_completed', TRY_TO_DOUBLE(properties:"cost_of_goods"::string), NULL)) AS cost_of_goods,
+        SUM(IFF(event_name = 'ad_spend', TRY_TO_DOUBLE(properties:"spend"::string), NULL)) AS ad_spend
       FROM events
       WHERE event_name IN ('order_completed', 'order_refunded', 'ad_spend')
-        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
-        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
       GROUP BY 1
+    ),
+    totals AS (
+      SELECT
+        w.week,
+        COALESCE(m.net_revenue, 0) AS net_revenue,
+        COALESCE(m.cost_of_goods, 0) AS cost_of_goods,
+        COALESCE(m.ad_spend, 0) AS ad_spend
+      FROM weeks AS w
+      LEFT JOIN weekly AS m ON m.week = w.week
     )
     SELECT week, net_revenue, cost_of_goods, ad_spend, net_revenue - cost_of_goods - ad_spend AS value
-    FROM weekly
+    FROM totals
     ORDER BY week;
 
 noise:

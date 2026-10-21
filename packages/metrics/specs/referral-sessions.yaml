@@ -39,137 +39,177 @@ numerator:
 
 queries:
   hogql: |-
-    -- Referral sessions per week: sessions whose first page view came from another site that is not a search engine, social network, payment page or this site, and carried no campaign tag (or utm_medium=referral).
-    SELECT week, count() AS value
+    -- Referral sessions per week: sessions whose first page view came from another site that is not a search engine, social network, payment page or this site, and carried no campaign tag (or is tagged utm_medium=referral). Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT w.week AS week, coalesce(s.sessions, 0) AS value
     FROM (
-      SELECT
-        $session_id AS session_id,
-        toMonday(min(timestamp)) AS week,
-        argMin(lower(coalesce(properties.utm_medium, '')), timestamp) AS medium,
-        argMin(lower(coalesce(properties.$referring_domain, '')), timestamp) AS referrer,
-        argMin(lower(coalesce(properties.$host, '')), timestamp) AS host,
-        argMin(coalesce(properties.gclid, properties.gbraid, properties.wbraid, properties.msclkid, '') != '', timestamp) AS ad_click
-      FROM events
-      WHERE event = '$pageview'
-        AND $session_id IS NOT NULL
-        AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
-        AND timestamp < toStartOfWeek(now(), 1)
-      GROUP BY session_id
-    )
-    WHERE NOT (match(medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
-      AND (
-        medium = 'referral'
-        OR (
-          medium = ''
-          AND referrer NOT IN ('', '$direct')
-          AND replaceRegexpOne(referrer, '^www[.]', '') <> replaceRegexpOne(host, '^www[.]', '')
-          AND NOT match(referrer, '^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$')
-          AND NOT match(referrer, '^(www[.]|m[.]|l[.]|lm[.]|out[.])?(facebook|instagram|linkedin|pinterest|reddit|tiktok|youtube|twitter)[.][a-z.]+$|^(x[.]com|t[.]co|lnkd[.]in|threads[.]net|bsky[.]app)$')
-          AND NOT match(referrer, '^(.*[.])?(paypal|stripe|klarna|afterpay|affirm)[.]com$|^shop[.]app$')
-        )
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, count() AS sessions
+      FROM (
+        SELECT
+          $session_id AS session_id,
+          toMonday(toTimeZone(min(timestamp), 'UTC')) AS week,
+          argMin(lower(coalesce(properties.utm_medium, '')), timestamp) AS medium,
+          argMin(lower(coalesce(properties.$referring_domain, '')), timestamp) AS referrer,
+          argMin(lower(coalesce(properties.$host, '')), timestamp) AS host,
+          argMin(coalesce(properties.gclid, properties.gbraid, properties.wbraid, properties.msclkid, '') <> '', timestamp) AS ad_click
+        FROM events
+        WHERE event = '$pageview'
+          AND $session_id != ''
+          AND timestamp >= now() - toIntervalWeek(27)
+          AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+        GROUP BY session_id
       )
-    GROUP BY week
+      WHERE NOT (match(medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
+        AND (
+          medium = 'referral'
+          OR (
+            medium = ''
+            AND referrer NOT IN ('', '$direct')
+            AND replaceRegexpOne(referrer, '^www[.]', '') <> replaceRegexpOne(host, '^www[.]', '')
+            AND NOT match(referrer, '^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$')
+            AND NOT match(referrer, '^(www[.]|m[.]|l[.]|lm[.]|out[.])?(facebook|instagram|linkedin|pinterest|reddit|tiktok|youtube|twitter)[.][a-z.]+$|^(x[.]com|t[.]co|lnkd[.]in|threads[.]net|bsky[.]app)$')
+            AND NOT match(referrer, '^(.*[.])?(paypal|stripe|klarna|afterpay|affirm)[.]com$|^shop[.]app$')
+          )
+        )
+      GROUP BY week
+    ) AS s ON s.week = w.week
     ORDER BY week
   postgres: |-
-    -- Referral sessions per week: sessions whose first page view came from another site that is not a search engine, social network, payment page or this site, and carried no campaign tag (or utm_medium=referral).
-    WITH entries AS (
+    -- Referral sessions per week: sessions whose first page view came from another site that is not a search engine, social network, payment page or this site, and carried no campaign tag (or is tagged utm_medium=referral). Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    entries AS (
       SELECT DISTINCT ON (session_id)
         session_id,
-        date_trunc('week', occurred_at)::date AS week,
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week,
         lower(coalesce(properties->>'utm_medium', '')) AS medium,
         lower(coalesce(properties->>'$referring_domain', '')) AS referrer,
         lower(coalesce(properties->>'$host', '')) AS host,
         coalesce(properties->>'gclid', properties->>'gbraid', properties->>'wbraid', properties->>'msclkid', '') <> '' AS ad_click
       FROM events
       WHERE event_name = '$pageview'
-        AND session_id IS NOT NULL
-        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
-        AND occurred_at < date_trunc('week', now())
+        AND session_id <> ''
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
       ORDER BY session_id, occurred_at
-    )
-    SELECT week, count(*) AS value
-    FROM entries
-    WHERE NOT (medium ~ '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$' OR ad_click)
-      AND (
-        medium = 'referral'
-        OR (
-          medium = ''
-          AND referrer NOT IN ('', '$direct')
-          AND regexp_replace(referrer, '^www[.]', '') <> regexp_replace(host, '^www[.]', '')
-          AND NOT referrer ~ '^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$'
-          AND NOT referrer ~ '^(www[.]|m[.]|l[.]|lm[.]|out[.])?(facebook|instagram|linkedin|pinterest|reddit|tiktok|youtube|twitter)[.][a-z.]+$|^(x[.]com|t[.]co|lnkd[.]in|threads[.]net|bsky[.]app)$'
-          AND NOT referrer ~ '^(.*[.])?(paypal|stripe|klarna|afterpay|affirm)[.]com$|^shop[.]app$'
+    ),
+    weekly AS (
+      SELECT week, count(*) AS sessions
+      FROM entries
+      WHERE NOT (medium ~ '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$' OR ad_click)
+        AND (
+          medium = 'referral'
+          OR (
+            medium = ''
+            AND referrer NOT IN ('', '$direct')
+            AND regexp_replace(referrer, '^www[.]', '') <> regexp_replace(host, '^www[.]', '')
+            AND NOT referrer ~ '^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$'
+            AND NOT referrer ~ '^(www[.]|m[.]|l[.]|lm[.]|out[.])?(facebook|instagram|linkedin|pinterest|reddit|tiktok|youtube|twitter)[.][a-z.]+$|^(x[.]com|t[.]co|lnkd[.]in|threads[.]net|bsky[.]app)$'
+            AND NOT referrer ~ '^(.*[.])?(paypal|stripe|klarna|afterpay|affirm)[.]com$|^shop[.]app$'
+          )
         )
-      )
-    GROUP BY week
-    ORDER BY week;
+      GROUP BY week
+    )
+    SELECT w.week, coalesce(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
   bigquery: |-
-    -- Referral sessions per week: sessions whose first page view came from another site that is not a search engine, social network, payment page or this site, and carried no campaign tag (or utm_medium=referral).
-    WITH entries AS (
+    -- Referral sessions per week: sessions whose first page view came from another site that is not a search engine, social network, payment page or this site, and carried no campaign tag (or is tagged utm_medium=referral). Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    entries AS (
       SELECT
         session_id,
         DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
-        lower(coalesce(JSON_VALUE(properties, '$.utm_medium'), '')) AS medium,
-        lower(coalesce(JSON_VALUE(properties, '$."$referring_domain"'), '')) AS referrer,
-        lower(coalesce(JSON_VALUE(properties, '$."$host"'), '')) AS host,
-        coalesce(JSON_VALUE(properties, '$.gclid'), JSON_VALUE(properties, '$.gbraid'), JSON_VALUE(properties, '$.wbraid'), JSON_VALUE(properties, '$.msclkid'), '') <> '' AS ad_click
+        LOWER(COALESCE(JSON_VALUE(properties, '$.utm_medium'), '')) AS medium,
+        LOWER(COALESCE(JSON_VALUE(properties, '$."$referring_domain"'), '')) AS referrer,
+        LOWER(COALESCE(JSON_VALUE(properties, '$."$host"'), '')) AS host,
+        COALESCE(JSON_VALUE(properties, '$.gclid'), JSON_VALUE(properties, '$.gbraid'), JSON_VALUE(properties, '$.wbraid'), JSON_VALUE(properties, '$.msclkid'), '') <> '' AS ad_click
       FROM events
       WHERE event_name = '$pageview'
-        AND session_id IS NOT NULL
+        AND session_id <> ''
         AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
         AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
       QUALIFY ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY occurred_at) = 1
-    )
-    SELECT week, count(*) AS value
-    FROM entries
-    WHERE NOT (REGEXP_CONTAINS(medium, r'^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
-      AND (
-        medium = 'referral'
-        OR (
-          medium = ''
-          AND referrer NOT IN ('', '$direct')
-          AND REGEXP_REPLACE(referrer, r'^www[.]', '') <> REGEXP_REPLACE(host, r'^www[.]', '')
-          AND NOT REGEXP_CONTAINS(referrer, r'^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$')
-          AND NOT REGEXP_CONTAINS(referrer, r'^(www[.]|m[.]|l[.]|lm[.]|out[.])?(facebook|instagram|linkedin|pinterest|reddit|tiktok|youtube|twitter)[.][a-z.]+$|^(x[.]com|t[.]co|lnkd[.]in|threads[.]net|bsky[.]app)$')
-          AND NOT REGEXP_CONTAINS(referrer, r'^(.*[.])?(paypal|stripe|klarna|afterpay|affirm)[.]com$|^shop[.]app$')
+    ),
+    weekly AS (
+      SELECT week, COUNT(*) AS sessions
+      FROM entries
+      WHERE NOT (REGEXP_CONTAINS(medium, r'^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
+        AND (
+          medium = 'referral'
+          OR (
+            medium = ''
+            AND referrer NOT IN ('', '$direct')
+            AND REGEXP_REPLACE(referrer, r'^www[.]', '') <> REGEXP_REPLACE(host, r'^www[.]', '')
+            AND NOT REGEXP_CONTAINS(referrer, r'^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$')
+            AND NOT REGEXP_CONTAINS(referrer, r'^(www[.]|m[.]|l[.]|lm[.]|out[.])?(facebook|instagram|linkedin|pinterest|reddit|tiktok|youtube|twitter)[.][a-z.]+$|^(x[.]com|t[.]co|lnkd[.]in|threads[.]net|bsky[.]app)$')
+            AND NOT REGEXP_CONTAINS(referrer, r'^(.*[.])?(paypal|stripe|klarna|afterpay|affirm)[.]com$|^shop[.]app$')
+          )
         )
-      )
-    GROUP BY week
-    ORDER BY week;
+      GROUP BY week
+    )
+    SELECT w.week, COALESCE(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
   snowflake: |-
-    -- Referral sessions per week: sessions whose first page view came from another site that is not a search engine, social network, payment page or this site, and carried no campaign tag (or utm_medium=referral).
-    -- Assumes WEEK_START = 1 (Monday).
-    WITH entries AS (
+    -- Referral sessions per week: sessions whose first page view came from another site that is not a search engine, social network, payment page or this site, and carried no campaign tag (or is tagged utm_medium=referral). Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    entries AS (
       SELECT
         session_id,
-        DATE_TRUNC('week', occurred_at)::date AS week,
-        lower(coalesce(properties:"utm_medium"::string, '')) AS medium,
-        lower(coalesce(properties:"$referring_domain"::string, '')) AS referrer,
-        lower(coalesce(properties:"$host"::string, '')) AS host,
-        coalesce(properties:"gclid"::string, properties:"gbraid"::string, properties:"wbraid"::string, properties:"msclkid"::string, '') <> '' AS ad_click
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week,
+        LOWER(COALESCE(properties:"utm_medium"::string, '')) AS medium,
+        LOWER(COALESCE(properties:"$referring_domain"::string, '')) AS referrer,
+        LOWER(COALESCE(properties:"$host"::string, '')) AS host,
+        COALESCE(properties:"gclid"::string, properties:"gbraid"::string, properties:"wbraid"::string, properties:"msclkid"::string, '') <> '' AS ad_click
       FROM events
       WHERE event_name = '$pageview'
-        AND session_id IS NOT NULL
-        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
-        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+        AND session_id <> ''
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
       QUALIFY ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY occurred_at) = 1
-    )
-    SELECT week, count(*) AS value
-    FROM entries
-    WHERE NOT (REGEXP_LIKE(medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
-      AND (
-        medium = 'referral'
-        OR (
-          medium = ''
-          AND referrer NOT IN ('', '$direct')
-          AND REGEXP_REPLACE(referrer, '^www[.]', '') <> REGEXP_REPLACE(host, '^www[.]', '')
-          AND NOT REGEXP_LIKE(referrer, '^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$')
-          AND NOT REGEXP_LIKE(referrer, '^(www[.]|m[.]|l[.]|lm[.]|out[.])?(facebook|instagram|linkedin|pinterest|reddit|tiktok|youtube|twitter)[.][a-z.]+$|^(x[.]com|t[.]co|lnkd[.]in|threads[.]net|bsky[.]app)$')
-          AND NOT REGEXP_LIKE(referrer, '^(.*[.])?(paypal|stripe|klarna|afterpay|affirm)[.]com$|^shop[.]app$')
+    ),
+    weekly AS (
+      SELECT week, COUNT(*) AS sessions
+      FROM entries
+      WHERE NOT (REGEXP_LIKE(medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
+        AND (
+          medium = 'referral'
+          OR (
+            medium = ''
+            AND referrer NOT IN ('', '$direct')
+            AND REGEXP_REPLACE(referrer, '^www[.]', '') <> REGEXP_REPLACE(host, '^www[.]', '')
+            AND NOT REGEXP_LIKE(referrer, '^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$')
+            AND NOT REGEXP_LIKE(referrer, '^(www[.]|m[.]|l[.]|lm[.]|out[.])?(facebook|instagram|linkedin|pinterest|reddit|tiktok|youtube|twitter)[.][a-z.]+$|^(x[.]com|t[.]co|lnkd[.]in|threads[.]net|bsky[.]app)$')
+            AND NOT REGEXP_LIKE(referrer, '^(.*[.])?(paypal|stripe|klarna|afterpay|affirm)[.]com$|^shop[.]app$')
+          )
         )
-      )
-    GROUP BY week
-    ORDER BY week;
+      GROUP BY week
+    )
+    SELECT w.week, COALESCE(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
 
 noise:
   type: poisson

@@ -42,111 +42,114 @@ denominator:
 
 queries:
   hogql: |-
-    -- CAC payback per week, in months: acquisition spend ÷ (new MRR from first subscriptions × gross margin).
+    -- CAC payback per week, in months: acquisition spend ÷ (new MRR from first subscriptions × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
     -- Gross margin is set to 0.80 below; replace it with your own.
+    -- HogQL: paste into a PostHog SQL insight.
     SELECT
-      s.week AS week,
-      s.spend AS numerator,
-      coalesce(n.new_mrr, 0) * 0.80 AS denominator,
-      if(coalesce(n.new_mrr, 0) > 0, s.spend / (n.new_mrr * 0.80), NULL) AS value
+      w.week AS week,
+      coalesce(f.spend, 0) AS numerator,
+      coalesce(f.new_mrr, 0) * 0.80 AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
     FROM (
-      SELECT toMonday(timestamp) AS week, sum(toFloat(properties.spend)) AS spend
-      FROM events
-      WHERE event = 'ad_spend'
-        AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
-        AND timestamp < toStartOfWeek(now(), 1)
-      GROUP BY week
-    ) AS s
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
     LEFT JOIN (
-      SELECT toMonday(timestamp) AS week, sum(toFloat(properties.mrr)) AS new_mrr
+      SELECT
+        toMonday(toTimeZone(timestamp, 'UTC')) AS week,
+        sumIf(toFloat(properties.spend), event = 'ad_spend') AS spend,
+        sumIf(toFloat(properties.mrr), event = 'subscription_started') AS new_mrr
       FROM events
-      WHERE event = 'subscription_started'
-        AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
-        AND timestamp < toStartOfWeek(now(), 1)
+      WHERE event IN ('ad_spend', 'subscription_started')
+        AND timestamp >= now() - toIntervalWeek(27)
+        AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
       GROUP BY week
-    ) AS n ON n.week = s.week
+    ) AS f ON f.week = w.week
     ORDER BY week
   postgres: |-
-    -- CAC payback per week, in months: acquisition spend ÷ (new MRR from first subscriptions × gross margin).
+    -- CAC payback per week, in months: acquisition spend ÷ (new MRR from first subscriptions × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
     -- Gross margin is set to 0.80 below; replace it with your own.
-    WITH spend AS (
-      SELECT date_trunc('week', occurred_at)::date AS week, sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END) AS spend
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    flows AS (
+      SELECT
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week,
+        sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END) FILTER (WHERE event_name = 'ad_spend') AS spend,
+        sum(CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END) FILTER (WHERE event_name = 'subscription_started') AS new_mrr
       FROM events
-      WHERE event_name = 'ad_spend'
-        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
-        AND occurred_at < date_trunc('week', now())
+      WHERE event_name IN ('ad_spend', 'subscription_started')
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
       GROUP BY 1
     ),
-    new_mrr AS (
-      SELECT date_trunc('week', occurred_at)::date AS week, sum(CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END) AS new_mrr
-      FROM events
-      WHERE event_name = 'subscription_started'
-        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
-        AND occurred_at < date_trunc('week', now())
-      GROUP BY 1
+    totals AS (
+      SELECT w.week, coalesce(f.spend, 0) AS numerator, coalesce(f.new_mrr, 0) * 0.80 AS denominator
+      FROM weeks AS w
+      LEFT JOIN flows AS f ON f.week = w.week
     )
-    SELECT
-      s.week,
-      s.spend AS numerator,
-      coalesce(n.new_mrr, 0) * 0.80 AS denominator,
-      s.spend / nullif(coalesce(n.new_mrr, 0) * 0.80, 0) AS value
-    FROM spend AS s
-    LEFT JOIN new_mrr AS n ON n.week = s.week
-    ORDER BY s.week;
+    SELECT week, numerator, denominator, numerator / nullif(denominator, 0) AS value
+    FROM totals
+    ORDER BY week;
   bigquery: |-
-    -- CAC payback per week, in months: acquisition spend ÷ (new MRR from first subscriptions × gross margin).
+    -- CAC payback per week, in months: acquisition spend ÷ (new MRR from first subscriptions × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
     -- Gross margin is set to 0.80 below; replace it with your own.
-    WITH spend AS (
-      SELECT DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week, SUM(CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64)) AS spend
-      FROM events
-      WHERE event_name = 'ad_spend'
-        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
-        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
-      GROUP BY 1
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
     ),
-    new_mrr AS (
-      SELECT DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week, SUM(CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64)) AS new_mrr
+    flows AS (
+      SELECT
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
+        SUM(IF(event_name = 'ad_spend', SAFE_CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64), NULL)) AS spend,
+        SUM(IF(event_name = 'subscription_started', SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64), NULL)) AS new_mrr
       FROM events
-      WHERE event_name = 'subscription_started'
+      WHERE event_name IN ('ad_spend', 'subscription_started')
         AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
         AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
-      GROUP BY 1
+      GROUP BY week
+    ),
+    totals AS (
+      SELECT w.week, COALESCE(f.spend, 0) AS numerator, COALESCE(f.new_mrr, 0) * 0.80 AS denominator
+      FROM weeks AS w
+      LEFT JOIN flows AS f ON f.week = w.week
     )
-    SELECT
-      s.week,
-      s.spend AS numerator,
-      COALESCE(n.new_mrr, 0) * 0.80 AS denominator,
-      SAFE_DIVIDE(s.spend, COALESCE(n.new_mrr, 0) * 0.80) AS value
-    FROM spend AS s
-    LEFT JOIN new_mrr AS n ON n.week = s.week
-    ORDER BY s.week;
+    SELECT week, numerator, denominator, SAFE_DIVIDE(numerator, denominator) AS value
+    FROM totals
+    ORDER BY week;
   snowflake: |-
-    -- CAC payback per week, in months: acquisition spend ÷ (new MRR from first subscriptions × gross margin).
-    -- Gross margin is set to 0.80 below; replace it with your own. Assumes WEEK_START = 1 (Monday).
-    WITH spend AS (
-      SELECT DATE_TRUNC('week', occurred_at)::date AS week, SUM(properties:"spend"::float) AS spend
+    -- CAC payback per week, in months: acquisition spend ÷ (new MRR from first subscriptions × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Gross margin is set to 0.80 below; replace it with your own.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    flows AS (
+      SELECT
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week,
+        SUM(IFF(event_name = 'ad_spend', TRY_TO_DOUBLE(properties:"spend"::string), NULL)) AS spend,
+        SUM(IFF(event_name = 'subscription_started', TRY_TO_DOUBLE(properties:"mrr"::string), NULL)) AS new_mrr
       FROM events
-      WHERE event_name = 'ad_spend'
-        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
-        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+      WHERE event_name IN ('ad_spend', 'subscription_started')
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
       GROUP BY 1
     ),
-    new_mrr AS (
-      SELECT DATE_TRUNC('week', occurred_at)::date AS week, SUM(properties:"mrr"::float) AS new_mrr
-      FROM events
-      WHERE event_name = 'subscription_started'
-        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
-        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
-      GROUP BY 1
+    totals AS (
+      SELECT w.week, COALESCE(f.spend, 0) AS numerator, COALESCE(f.new_mrr, 0) * 0.80 AS denominator
+      FROM weeks AS w
+      LEFT JOIN flows AS f ON f.week = w.week
     )
-    SELECT
-      s.week,
-      s.spend AS numerator,
-      COALESCE(n.new_mrr, 0) * 0.80 AS denominator,
-      DIV0NULL(s.spend, COALESCE(n.new_mrr, 0) * 0.80) AS value
-    FROM spend AS s
-    LEFT JOIN new_mrr AS n ON n.week = s.week
-    ORDER BY s.week;
+    SELECT week, numerator, denominator, numerator / NULLIF(denominator, 0) AS value
+    FROM totals
+    ORDER BY week;
 
 noise:
   type: process

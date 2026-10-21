@@ -56,148 +56,190 @@ denominator:
 
 queries:
   hogql: |-
-    -- LTV to CAC: gross profit (order totals − cost of goods − refunds) from each first-order week's new customers over their first 365 days ÷ ad spend in that week. First-order weeks 79 to 54 weeks ago; younger cohorts are left out until their 365 days close.
+    -- LTV to CAC: gross profit (order totals − cost of goods − refunds) from each first-order week's new customers over their first 365 days ÷ ad spend in that week. First-order weeks 79 to 54 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their 365 days close.
+    -- HogQL: paste into a PostHog SQL insight.
     SELECT
-      toString(c.week_start) AS week,
-      c.gross_profit AS numerator,
-      s.spend AS denominator,
-      if(s.spend > 0, c.gross_profit / s.spend, NULL) AS value
+      w.week AS week,
+      coalesce(c.amount_total, 0) AS numerator,
+      coalesce(a.spend, 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
     FROM (
-      SELECT toMonday(f.first_at) AS week_start, sum(o.gross_profit) AS gross_profit
-      FROM (
-        SELECT coalesce(properties.customer_id, toString(person_id)) AS customer_id, min(timestamp) AS first_at
-        FROM events
-        WHERE event = 'order_completed'
-          AND properties.is_first_order = 'true'
-          AND timestamp >= toMonday(now()) - toIntervalWeek(79)
-          AND timestamp < toMonday(now()) - toIntervalWeek(53)
-        GROUP BY customer_id
-      ) AS f
-      INNER JOIN (
-        SELECT po.customer_id AS customer_id, po.ts AS ts, po.total - po.cost - coalesce(r.refunded, 0) AS gross_profit
-        FROM (
-          SELECT
-            coalesce(properties.customer_id, toString(person_id)) AS customer_id,
-            properties.order_id AS order_id,
-            timestamp AS ts,
-            toFloat(properties.total) AS total,
-            coalesce(toFloat(properties.cost_of_goods), 0) AS cost
-          FROM events
-          WHERE event = 'order_completed'
-            AND timestamp >= toMonday(now()) - toIntervalWeek(79)
-        ) AS po
-        LEFT JOIN (
-          SELECT properties.order_id AS order_id, sum(toFloat(properties.amount)) AS refunded
-          FROM events
-          WHERE event = 'order_refunded'
-            AND timestamp >= toMonday(now()) - toIntervalWeek(79)
-          GROUP BY order_id
-        ) AS r ON r.order_id = po.order_id
-      ) AS o ON o.customer_id = f.customer_id
-      WHERE o.ts >= f.first_at
-        AND o.ts < f.first_at + toIntervalDay(365)
-      GROUP BY week_start
-    ) AS c
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(54, 80))) AS week
+    ) AS w
     LEFT JOIN (
-      SELECT toMonday(timestamp) AS week_start, sum(toFloat(properties.spend)) AS spend
+      SELECT week, sum(amount) AS amount_total, count() AS customers
+      FROM (
+        SELECT
+          toMonday(f.first_at) AS week,
+          f.customer_id AS customer_id,
+          sumIf(o.amount, o.ts >= f.first_at AND o.ts < f.first_at + toIntervalDay(365)) AS amount
+        FROM (
+          SELECT customer_id, min(ts) AS first_at
+          FROM (
+            SELECT coalesce(properties.customer_id, toString(person_id)) AS customer_id, toTimeZone(timestamp, 'UTC') AS ts
+            FROM events
+            WHERE event = 'order_completed'
+              AND properties.is_first_order = 'true'
+              AND timestamp >= now() - toIntervalWeek(80)
+              AND toMonday(toTimeZone(timestamp, 'UTC')) >= toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(79)
+          )
+          WHERE customer_id IS NOT NULL
+          GROUP BY customer_id
+        ) AS f
+        INNER JOIN (
+          SELECT po.customer_id AS customer_id, po.ts AS ts, po.total - coalesce(po.cost_of_goods, 0) - coalesce(r.refunded, 0) AS amount
+          FROM (
+            SELECT
+              coalesce(properties.customer_id, toString(person_id)) AS customer_id,
+              properties.order_id AS order_id,
+              toTimeZone(timestamp, 'UTC') AS ts,
+              toFloat(properties.total) AS total,
+              toFloat(properties.cost_of_goods) AS cost_of_goods
+            FROM events
+            WHERE event = 'order_completed'
+              AND timestamp >= now() - toIntervalWeek(80)
+              AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(79) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+          ) AS po
+          LEFT JOIN (
+            SELECT properties.order_id AS order_id, sum(toFloat(properties.amount)) AS refunded
+            FROM events
+            WHERE event = 'order_refunded'
+              AND timestamp >= now() - toIntervalWeek(80)
+              AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(79) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+            GROUP BY order_id
+          ) AS r ON r.order_id = po.order_id
+        ) AS o ON o.customer_id = f.customer_id
+        WHERE toMonday(f.first_at) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(79) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(54)
+        GROUP BY week, customer_id
+      )
+      GROUP BY week
+    ) AS c ON c.week = w.week
+    LEFT JOIN (
+      SELECT toMonday(toTimeZone(timestamp, 'UTC')) AS week, sum(toFloat(properties.spend)) AS spend
       FROM events
       WHERE event = 'ad_spend'
-        AND timestamp >= toMonday(now()) - toIntervalWeek(79)
-        AND timestamp < toMonday(now()) - toIntervalWeek(53)
-      GROUP BY week_start
-    ) AS s ON s.week_start = c.week_start
-    ORDER BY c.week_start
+        AND timestamp >= now() - toIntervalWeek(80)
+        AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(79) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(54)
+      GROUP BY week
+    ) AS a ON a.week = w.week
+    ORDER BY week
   postgres: |-
-    -- LTV to CAC: gross profit (order totals − cost of goods − refunds) from each first-order week's new customers over their first 365 days ÷ ad spend in that week. First-order weeks 79 to 54 weeks ago; younger cohorts are left out until their 365 days close.
-    WITH refunds AS (
-      SELECT properties->>'order_id' AS order_id, sum(CASE WHEN properties->>'amount' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN CASE WHEN properties->>'amount' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'amount')::numeric END END) AS refunded
+    -- LTV to CAC: gross profit (order totals − cost of goods − refunds) from each first-order week's new customers over their first 365 days ÷ ad spend in that week. First-order weeks 79 to 54 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their 365 days close.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '79 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '54 weeks',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    refunds AS (
+      SELECT properties->>'order_id' AS order_id, sum(CASE WHEN properties->>'amount' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'amount')::numeric END) AS refunded
       FROM events
       WHERE event_name = 'order_refunded'
-        AND occurred_at >= date_trunc('week', now()) - interval '79 weeks'
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '79 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
       GROUP BY 1
     ),
-    paid_orders AS (
+    orders AS (
       SELECT
         coalesce(e.properties->>'customer_id', e.user_id) AS customer_id,
         e.properties->>'is_first_order' = 'true' AS is_first_order,
-        e.occurred_at,
-        CASE WHEN e.properties->>'total' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN CASE WHEN e.properties->>'total' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (e.properties->>'total')::numeric END END
-          - coalesce(CASE WHEN e.properties->>'cost_of_goods' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN CASE WHEN e.properties->>'cost_of_goods' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (e.properties->>'cost_of_goods')::numeric END END, 0)
-          - coalesce(r.refunded, 0) AS gross_profit
-      FROM events e
-      LEFT JOIN refunds r ON r.order_id = e.properties->>'order_id'
+        e.occurred_at AT TIME ZONE 'UTC' AS ts,
+        CASE WHEN e.properties->>'total' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (e.properties->>'total')::numeric END
+          - coalesce(CASE WHEN e.properties->>'cost_of_goods' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (e.properties->>'cost_of_goods')::numeric END, 0)
+          - coalesce(r.refunded, 0) AS amount
+      FROM events AS e
+      LEFT JOIN refunds AS r ON r.order_id = e.properties->>'order_id'
       WHERE e.event_name = 'order_completed'
-        AND e.occurred_at >= date_trunc('week', now()) - interval '79 weeks'
+        AND e.occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '79 weeks') AT TIME ZONE 'UTC'
+        AND e.occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
     ),
     first_orders AS (
-      SELECT customer_id, min(occurred_at) AS first_at
-      FROM paid_orders
+      SELECT customer_id, min(ts) AS first_at
+      FROM orders
       WHERE is_first_order
-        AND occurred_at < date_trunc('week', now()) - interval '53 weeks'
+        AND customer_id IS NOT NULL
+        AND ts < date_trunc('week', now() AT TIME ZONE 'UTC') - interval '53 weeks'
       GROUP BY customer_id
     ),
     cohort AS (
-      SELECT date_trunc('week', f.first_at)::date AS week, sum(o.gross_profit) AS gross_profit
-      FROM first_orders f
-      JOIN paid_orders o
+      SELECT date_trunc('week', f.first_at)::date AS week, f.customer_id, sum(o.amount) AS amount
+      FROM first_orders AS f
+      JOIN orders AS o
         ON o.customer_id = f.customer_id
-       AND o.occurred_at >= f.first_at
-       AND o.occurred_at < f.first_at + interval '365 days'
-      GROUP BY 1
+       AND o.ts >= f.first_at
+       AND o.ts < f.first_at + interval '365 days'
+      GROUP BY 1, 2
     ),
     spend AS (
-      SELECT date_trunc('week', occurred_at)::date AS week, sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END END) AS spend
+      SELECT date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week, sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END) AS spend
       FROM events
       WHERE event_name = 'ad_spend'
-        AND occurred_at >= date_trunc('week', now()) - interval '79 weeks'
-        AND occurred_at < date_trunc('week', now()) - interval '53 weeks'
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '79 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '53 weeks') AT TIME ZONE 'UTC'
       GROUP BY 1
+    ),
+    profit AS (
+      SELECT week, sum(amount) AS gross_profit
+      FROM cohort
+      GROUP BY week
+    ),
+    totals AS (
+      SELECT w.week, coalesce(p.gross_profit, 0) AS gross_profit, coalesce(s.spend, 0) AS spend
+      FROM weeks AS w
+      LEFT JOIN profit AS p ON p.week = w.week
+      LEFT JOIN spend AS s ON s.week = w.week
     )
-    SELECT
-      c.week,
-      c.gross_profit AS numerator,
-      s.spend AS denominator,
-      c.gross_profit / nullif(s.spend, 0) AS value
-    FROM cohort c
-    LEFT JOIN spend s ON s.week = c.week
-    ORDER BY c.week;
+    SELECT week, gross_profit AS numerator, spend AS denominator, gross_profit / nullif(spend, 0) AS value
+    FROM totals
+    ORDER BY week;
   bigquery: |-
-    -- LTV to CAC: gross profit (order totals − cost of goods − refunds) from each first-order week's new customers over their first 365 days ÷ ad spend in that week. First-order weeks 79 to 54 weeks ago; younger cohorts are left out until their 365 days close.
-    WITH refunds AS (
+    -- LTV to CAC: gross profit (order totals − cost of goods − refunds) from each first-order week's new customers over their first 365 days ÷ ad spend in that week. First-order weeks 79 to 54 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their 365 days close.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 79 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 54 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    refunds AS (
       SELECT JSON_VALUE(properties, '$.order_id') AS order_id, SUM(SAFE_CAST(JSON_VALUE(properties, '$.amount') AS FLOAT64)) AS refunded
       FROM events
       WHERE event_name = 'order_refunded'
         AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 79 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
       GROUP BY order_id
     ),
-    paid_orders AS (
+    orders AS (
       SELECT
         COALESCE(JSON_VALUE(e.properties, '$.customer_id'), e.user_id) AS customer_id,
         JSON_VALUE(e.properties, '$.is_first_order') = 'true' AS is_first_order,
         e.occurred_at,
         SAFE_CAST(JSON_VALUE(e.properties, '$.total') AS FLOAT64)
           - COALESCE(SAFE_CAST(JSON_VALUE(e.properties, '$.cost_of_goods') AS FLOAT64), 0)
-          - COALESCE(r.refunded, 0) AS gross_profit
+          - COALESCE(r.refunded, 0) AS amount
       FROM events AS e
       LEFT JOIN refunds AS r ON r.order_id = JSON_VALUE(e.properties, '$.order_id')
       WHERE e.event_name = 'order_completed'
         AND e.occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 79 WEEK))
+        AND e.occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
     ),
     first_orders AS (
       SELECT customer_id, MIN(occurred_at) AS first_at
-      FROM paid_orders
+      FROM orders
       WHERE is_first_order
+        AND customer_id IS NOT NULL
         AND occurred_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 53 WEEK))
       GROUP BY customer_id
     ),
     cohort AS (
-      SELECT DATE_TRUNC(DATE(f.first_at), ISOWEEK) AS week, SUM(o.gross_profit) AS gross_profit
+      SELECT DATE_TRUNC(DATE(f.first_at), ISOWEEK) AS week, f.customer_id, SUM(o.amount) AS amount
       FROM first_orders AS f
-      JOIN paid_orders AS o
+      JOIN orders AS o
         ON o.customer_id = f.customer_id
        AND o.occurred_at >= f.first_at
        AND o.occurred_at < TIMESTAMP_ADD(f.first_at, INTERVAL 365 DAY)
-      GROUP BY week
+      GROUP BY week, f.customer_id
     ),
     spend AS (
       SELECT DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week, SUM(SAFE_CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64)) AS spend
@@ -206,69 +248,89 @@ queries:
         AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 79 WEEK))
         AND occurred_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 53 WEEK))
       GROUP BY week
+    ),
+    profit AS (
+      SELECT week, SUM(amount) AS gross_profit
+      FROM cohort
+      GROUP BY week
+    ),
+    totals AS (
+      SELECT w.week, COALESCE(p.gross_profit, 0) AS gross_profit, COALESCE(s.spend, 0) AS spend
+      FROM weeks AS w
+      LEFT JOIN profit AS p ON p.week = w.week
+      LEFT JOIN spend AS s ON s.week = w.week
     )
-    SELECT
-      c.week,
-      c.gross_profit AS numerator,
-      s.spend AS denominator,
-      SAFE_DIVIDE(c.gross_profit, s.spend) AS value
-    FROM cohort AS c
-    LEFT JOIN spend AS s ON s.week = c.week
-    ORDER BY c.week;
+    SELECT week, gross_profit AS numerator, spend AS denominator, SAFE_DIVIDE(gross_profit, spend) AS value
+    FROM totals
+    ORDER BY week;
   snowflake: |-
-    -- LTV to CAC: gross profit (order totals − cost of goods − refunds) from each first-order week's new customers over their first 365 days ÷ ad spend in that week. First-order weeks 79 to 54 weeks ago; younger cohorts are left out until their 365 days close. Assumes WEEK_START = 1 (Monday).
-    WITH refunds AS (
-      SELECT properties:order_id::string AS order_id, SUM(properties:amount::float) AS refunded
+    -- LTV to CAC: gross profit (order totals − cost of goods − refunds) from each first-order week's new customers over their first 365 days ÷ ad spend in that week. First-order weeks 79 to 54 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their 365 days close.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -53 - ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    refunds AS (
+      SELECT properties:"order_id"::string AS order_id, SUM(TRY_TO_DOUBLE(properties:"amount"::string)) AS refunded
       FROM events
       WHERE event_name = 'order_refunded'
-        AND occurred_at >= DATEADD(week, -79, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at >= DATEADD(week, -79, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
       GROUP BY 1
     ),
-    paid_orders AS (
+    orders AS (
       SELECT
-        COALESCE(e.properties:customer_id::string, e.user_id) AS customer_id,
-        e.properties:is_first_order::boolean AS is_first_order,
+        COALESCE(e.properties:"customer_id"::string, e.user_id) AS customer_id,
+        e.properties:"is_first_order"::string = 'true' AS is_first_order,
         e.occurred_at,
-        e.properties:total::float
-          - COALESCE(e.properties:cost_of_goods::float, 0)
-          - COALESCE(r.refunded, 0) AS gross_profit
+        TRY_TO_DOUBLE(e.properties:"total"::string)
+          - COALESCE(TRY_TO_DOUBLE(e.properties:"cost_of_goods"::string), 0)
+          - COALESCE(r.refunded, 0) AS amount
       FROM events AS e
-      LEFT JOIN refunds AS r ON r.order_id = e.properties:order_id::string
+      LEFT JOIN refunds AS r ON r.order_id = e.properties:"order_id"::string
       WHERE e.event_name = 'order_completed'
-        AND e.occurred_at >= DATEADD(week, -79, DATE_TRUNC('week', CURRENT_DATE()))
+        AND e.occurred_at >= DATEADD(week, -79, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND e.occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
     ),
     first_orders AS (
       SELECT customer_id, MIN(occurred_at) AS first_at
-      FROM paid_orders
+      FROM orders
       WHERE is_first_order
-        AND occurred_at < DATEADD(week, -53, DATE_TRUNC('week', CURRENT_DATE()))
+        AND customer_id IS NOT NULL
+        AND occurred_at < DATEADD(week, -53, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
       GROUP BY customer_id
     ),
     cohort AS (
-      SELECT DATE_TRUNC('week', f.first_at)::date AS week, SUM(o.gross_profit) AS gross_profit
+      SELECT DATEADD(day, 1 - DAYOFWEEKISO(f.first_at), f.first_at::date) AS week, f.customer_id, SUM(o.amount) AS amount
       FROM first_orders AS f
-      JOIN paid_orders AS o
+      JOIN orders AS o
         ON o.customer_id = f.customer_id
        AND o.occurred_at >= f.first_at
        AND o.occurred_at < DATEADD(day, 365, f.first_at)
-      GROUP BY 1
+      GROUP BY 1, 2
     ),
     spend AS (
-      SELECT DATE_TRUNC('week', occurred_at)::date AS week, SUM(properties:spend::float) AS spend
+      SELECT DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week, SUM(TRY_TO_DOUBLE(properties:"spend"::string)) AS spend
       FROM events
       WHERE event_name = 'ad_spend'
-        AND occurred_at >= DATEADD(week, -79, DATE_TRUNC('week', CURRENT_DATE()))
-        AND occurred_at < DATEADD(week, -53, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at >= DATEADD(week, -79, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(week, -53, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
       GROUP BY 1
+    ),
+    profit AS (
+      SELECT week, SUM(amount) AS gross_profit
+      FROM cohort
+      GROUP BY week
+    ),
+    totals AS (
+      SELECT w.week, COALESCE(p.gross_profit, 0) AS gross_profit, COALESCE(s.spend, 0) AS spend
+      FROM weeks AS w
+      LEFT JOIN profit AS p ON p.week = w.week
+      LEFT JOIN spend AS s ON s.week = w.week
     )
-    SELECT
-      c.week,
-      c.gross_profit AS numerator,
-      s.spend AS denominator,
-      DIV0NULL(c.gross_profit, s.spend) AS value
-    FROM cohort AS c
-    LEFT JOIN spend AS s ON s.week = c.week
-    ORDER BY c.week;
+    SELECT week, gross_profit AS numerator, spend AS denominator, gross_profit / NULLIF(spend, 0) AS value
+    FROM totals
+    ORDER BY week;
 
 noise:
   type: process

@@ -35,76 +35,102 @@ numerator:
 
 queries:
   hogql: |-
-    -- Time to value: median hours from a person's first signup to their first activation, among people who activated within 7 days, by signup week. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close.
+    -- Time to value: median hours from a person's first signup to their first activation, among people who activated within 7 days, by signup week. Signup weeks 27 to 2 weeks before this one (Monday 00:00 UTC), oldest first; last week's signups are left out until their 7 days close.
+    -- HogQL: paste into a PostHog SQL insight.
     SELECT
-      toString(week_start) AS week,
-      count() AS activated_users,
-      quantile(0.5)(hours) AS value
+      w.week AS week,
+      coalesce(m.people, 0) AS activated_users,
+      if(activated_users = 0, NULL, m.median_hours) AS value
     FROM (
-      SELECT
-        toMonday(s.signup_at) AS week_start,
-        dateDiff('second', s.signup_at, min(a.ts)) / 3600 AS hours
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(2, 28))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, count() AS people, quantile(0.5)(hours) AS median_hours
       FROM (
-        SELECT person_id, min(timestamp) AS signup_at
-        FROM events
-        WHERE event = 'signed_up'
-        GROUP BY person_id
-      ) AS s
-      INNER JOIN (
-        SELECT person_id, timestamp AS ts
-        FROM events
-        WHERE event = 'activated'
-          AND timestamp >= toMonday(now()) - toIntervalWeek(27)
-      ) AS a ON a.person_id = s.person_id
-      WHERE s.signup_at >= toMonday(now()) - toIntervalWeek(27)
-        AND s.signup_at < toMonday(now()) - toIntervalWeek(1)
-        AND a.ts >= s.signup_at
-        AND a.ts < s.signup_at + toIntervalDay(7)
-      GROUP BY week_start, s.person_id, s.signup_at
-    )
-    GROUP BY week_start
-    ORDER BY week_start
+        SELECT
+          toMonday(s.signup_at) AS week,
+          s.person_id AS person_id,
+          dateDiff('millisecond', s.signup_at, min(a.ts)) / 3600000 AS hours
+        FROM (
+          SELECT person_id, min(toTimeZone(timestamp, 'UTC')) AS signup_at
+          FROM events
+          WHERE event = 'signed_up'
+            AND person_id IS NOT NULL
+          GROUP BY person_id
+        ) AS s
+        INNER JOIN (
+          SELECT person_id, toTimeZone(timestamp, 'UTC') AS ts
+          FROM events
+          WHERE event = 'activated'
+            AND timestamp >= now() - toIntervalWeek(29)
+        ) AS a ON a.person_id = s.person_id
+        WHERE toMonday(s.signup_at) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(27) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(2)
+          AND a.ts >= s.signup_at
+          AND a.ts < s.signup_at + toIntervalDay(7)
+        GROUP BY week, person_id, s.signup_at
+      )
+      GROUP BY week
+    ) AS m ON m.week = w.week
+    ORDER BY week
   postgres: |-
-    -- Time to value: median hours from a person's first signup to their first activation, among people who activated within 7 days, by signup week. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close.
-    WITH signups AS (
-      SELECT user_id, min(occurred_at) AS signup_at
+    -- Time to value: median hours from a person's first signup to their first activation, among people who activated within 7 days, by signup week. Signup weeks 27 to 2 weeks before this one (Monday 00:00 UTC), oldest first; last week's signups are left out until their 7 days close.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '27 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '2 weeks',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    signups AS (
+      SELECT user_id, min(occurred_at AT TIME ZONE 'UTC') AS signup_at
       FROM events
       WHERE event_name = 'signed_up'
+        AND user_id IS NOT NULL
       GROUP BY user_id
     ),
     first_value AS (
       SELECT
         date_trunc('week', s.signup_at)::date AS week,
-        extract(epoch FROM min(a.occurred_at) - s.signup_at) / 3600 AS hours
-      FROM signups s
-      JOIN events a
+        extract(epoch FROM min(a.occurred_at AT TIME ZONE 'UTC') - s.signup_at) / 3600 AS hours
+      FROM signups AS s
+      JOIN events AS a
         ON a.user_id = s.user_id
        AND a.event_name = 'activated'
-       AND a.occurred_at >= s.signup_at
-       AND a.occurred_at < s.signup_at + interval '7 days'
-      WHERE s.signup_at >= date_trunc('week', now()) - interval '27 weeks'
-        AND s.signup_at < date_trunc('week', now()) - interval '1 week'
+       AND a.occurred_at AT TIME ZONE 'UTC' >= s.signup_at
+       AND a.occurred_at AT TIME ZONE 'UTC' < s.signup_at + interval '7 days'
+      WHERE s.signup_at >= date_trunc('week', now() AT TIME ZONE 'UTC') - interval '27 weeks'
+        AND s.signup_at < date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week'
       GROUP BY s.user_id, s.signup_at
+    ),
+    medians AS (
+      SELECT week, count(*) AS activated_users, percentile_cont(0.5) WITHIN GROUP (ORDER BY hours) AS median_hours
+      FROM first_value
+      GROUP BY week
     )
-    SELECT
-      week,
-      count(*) AS activated_users,
-      percentile_cont(0.5) WITHIN GROUP (ORDER BY hours) AS value
-    FROM first_value
-    GROUP BY week
-    ORDER BY week;
+    SELECT w.week, coalesce(m.activated_users, 0) AS activated_users, m.median_hours AS value
+    FROM weeks AS w
+    LEFT JOIN medians AS m ON m.week = w.week
+    ORDER BY w.week;
   bigquery: |-
-    -- Time to value: median hours from a person's first signup to their first activation, among people who activated within 7 days, by signup week. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close. BigQuery's median here is approximate (APPROX_QUANTILES).
-    WITH signups AS (
+    -- Time to value: median hours from a person's first signup to their first activation, among people who activated within 7 days, by signup week. Signup weeks 27 to 2 weeks before this one (Monday 00:00 UTC), oldest first; last week's signups are left out until their 7 days close.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 27 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 2 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    signups AS (
       SELECT user_id, MIN(occurred_at) AS signup_at
       FROM events
       WHERE event_name = 'signed_up'
+        AND user_id IS NOT NULL
       GROUP BY user_id
     ),
     first_value AS (
       SELECT
         DATE_TRUNC(DATE(s.signup_at), ISOWEEK) AS week,
-        TIMESTAMP_DIFF(MIN(a.occurred_at), s.signup_at, SECOND) / 3600 AS hours
+        TIMESTAMP_DIFF(MIN(a.occurred_at), s.signup_at, MILLISECOND) / 3600000 AS hours
       FROM signups AS s
       JOIN events AS a
         ON a.user_id = s.user_id
@@ -114,43 +140,55 @@ queries:
       WHERE s.signup_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 27 WEEK))
         AND s.signup_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK))
       GROUP BY s.user_id, s.signup_at
+    ),
+    medians AS (
+      SELECT DISTINCT
+        week,
+        COUNT(*) OVER (PARTITION BY week) AS activated_users,
+        PERCENTILE_CONT(hours, 0.5) OVER (PARTITION BY week) AS median_hours
+      FROM first_value
     )
-    SELECT
-      week,
-      COUNT(*) AS activated_users,
-      APPROX_QUANTILES(hours, 100)[OFFSET(50)] AS value
-    FROM first_value
-    GROUP BY week
-    ORDER BY week;
+    SELECT w.week, COALESCE(m.activated_users, 0) AS activated_users, m.median_hours AS value
+    FROM weeks AS w
+    LEFT JOIN medians AS m ON m.week = w.week
+    ORDER BY w.week;
   snowflake: |-
-    -- Time to value: median hours from a person's first signup to their first activation, among people who activated within 7 days, by signup week. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close. Assumes WEEK_START = 1 (Monday).
-    WITH signups AS (
+    -- Time to value: median hours from a person's first signup to their first activation, among people who activated within 7 days, by signup week. Signup weeks 27 to 2 weeks before this one (Monday 00:00 UTC), oldest first; last week's signups are left out until their 7 days close.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 - ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    signups AS (
       SELECT user_id, MIN(occurred_at) AS signup_at
       FROM events
       WHERE event_name = 'signed_up'
+        AND user_id IS NOT NULL
       GROUP BY user_id
     ),
     first_value AS (
       SELECT
-        DATE_TRUNC('week', s.signup_at)::date AS week,
-        DATEDIFF(second, s.signup_at, MIN(a.occurred_at)) / 3600 AS hours
+        DATEADD(day, 1 - DAYOFWEEKISO(s.signup_at), s.signup_at::date) AS week,
+        DATEDIFF('millisecond', s.signup_at, MIN(a.occurred_at)) / 3600000 AS hours
       FROM signups AS s
       JOIN events AS a
         ON a.user_id = s.user_id
        AND a.event_name = 'activated'
        AND a.occurred_at >= s.signup_at
        AND a.occurred_at < DATEADD(day, 7, s.signup_at)
-      WHERE s.signup_at >= DATEADD(week, -27, DATE_TRUNC('week', CURRENT_DATE()))
-        AND s.signup_at < DATEADD(week, -1, DATE_TRUNC('week', CURRENT_DATE()))
+      WHERE s.signup_at >= DATEADD(week, -27, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND s.signup_at < DATEADD(week, -1, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
       GROUP BY s.user_id, s.signup_at
+    ),
+    medians AS (
+      SELECT week, COUNT(*) AS activated_users, MEDIAN(hours) AS median_hours
+      FROM first_value
+      GROUP BY week
     )
-    SELECT
-      week,
-      COUNT(*) AS activated_users,
-      MEDIAN(hours) AS value
-    FROM first_value
-    GROUP BY week
-    ORDER BY week;
+    SELECT w.week, COALESCE(m.activated_users, 0) AS activated_users, m.median_hours AS value
+    FROM weeks AS w
+    LEFT JOIN medians AS m ON m.week = w.week
+    ORDER BY w.week;
 
 noise:
   type: process

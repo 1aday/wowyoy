@@ -37,135 +37,166 @@ numerator:
 
 queries:
   hogql: |-
-    -- Logo churn rate for each of the last 26 complete ISO weeks (Monday start, UTC): customers paying at the start of the week with no paying subscription at its end ÷ customers paying at the start. A customer is the person on the subscription; paying means active or past_due with MRR above zero.
+    -- Logo churn rate for each of the last 26 complete weeks (Monday 00:00 UTC), oldest first: customers paying at the start of the week with no paying subscription at its end ÷ customers paying at the start. A customer is the person on the subscription; paying means active or past_due with MRR above zero, at each subscription's latest subscription_updated.
+    -- HogQL: paste into a PostHog SQL insight.
     SELECT
-      toString(monday) AS week,
-      countIf(paying_end = 0) AS numerator,
-      count() AS denominator,
-      countIf(paying_end = 0) / count() AS value
+      w.week AS week,
+      coalesce(c.churned, 0) AS numerator,
+      coalesce(c.paying, 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
     FROM (
-      SELECT
-        monday,
-        account,
-        maxIf(paying, weeks_back = 1) AS paying_start,
-        maxIf(paying, weeks_back = 0) AS paying_end
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, countIf(paying_end = 0) AS churned, count() AS paying
       FROM (
-        SELECT
-          s.monday AS monday,
-          s.weeks_back AS weeks_back,
-          e.sub_id AS sub_id,
-          argMax(e.person, e.ts) AS account,
-          if(argMax(e.state, e.ts) IN ('active', 'past_due') AND argMax(e.amount, e.ts) > 0, 1, 0) AS paying
+        SELECT week, account, maxIf(paying, weeks_back = 1) AS paying_start, maxIf(paying, weeks_back = 0) AS paying_end
         FROM (
           SELECT
-            toMonday(now()) - toIntervalWeek(arrayJoin(range(1, 27))) AS monday,
-            arrayJoin([0, 1]) AS weeks_back
-        ) AS s
-        CROSS JOIN (
-          SELECT
-            toString(properties.subscription_id) AS sub_id,
-            person_id AS person,
-            toFloat(properties.mrr) AS amount,
-            toString(properties.status) AS state,
-            timestamp AS ts
-          FROM events
-          WHERE event = 'subscription_updated'
-        ) AS e
-        WHERE e.ts < s.monday + toIntervalWeek(1) - toIntervalWeek(s.weeks_back)
-        GROUP BY monday, weeks_back, sub_id
+            week,
+            weeks_back,
+            tupleElement(latest, 1) AS account,
+            if(tupleElement(latest, 3) IN ('active', 'past_due') AND tupleElement(latest, 2) > 0, 1, 0) AS paying
+          FROM (
+            SELECT s.week AS week, s.weeks_back AS weeks_back, u.subscription_id AS subscription_id, argMax(tuple(u.person, u.mrr, u.status), u.ts) AS latest
+            FROM (
+              SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week, arrayJoin([0, 1]) AS weeks_back
+            ) AS s
+            CROSS JOIN (
+              SELECT
+                toString(properties.subscription_id) AS subscription_id,
+                person_id AS person,
+                toTimeZone(timestamp, 'UTC') AS ts,
+                toFloat(properties.mrr) AS mrr,
+                toString(properties.status) AS status
+              FROM events
+              WHERE event = 'subscription_updated'
+                AND properties.subscription_id IS NOT NULL
+                AND person_id IS NOT NULL
+                AND toMonday(toTimeZone(timestamp, 'UTC')) < toMonday(toTimeZone(now(), 'UTC'))
+            ) AS u
+            WHERE toMonday(u.ts) <= s.week - toIntervalWeek(s.weeks_back)
+            GROUP BY week, weeks_back, subscription_id
+          )
+        )
+        GROUP BY week, account
       )
-      GROUP BY monday, account
-    )
-    WHERE paying_start = 1
-    GROUP BY monday
-    ORDER BY monday
+      WHERE paying_start = 1
+      GROUP BY week
+    ) AS c ON c.week = w.week
+    ORDER BY week
   postgres: |-
-    -- Logo churn rate for each of the last 26 complete ISO weeks (Monday start, UTC): customers paying at the start of the week with no paying subscription at its end ÷ customers paying at the start. A customer is the event's user_id; paying means active or past_due with MRR above zero.
-    WITH snaps AS (
-      SELECT w.week, b.weeks_back, w.week + (1 - b.weeks_back) * interval '1 week' AS cutoff
+    -- Logo churn rate for each of the last 26 complete weeks (Monday 00:00 UTC), oldest first: customers paying at the start of the week with no paying subscription at its end ÷ customers paying at the start. A customer is the user_id on the subscription; paying means active or past_due with MRR above zero, at each subscription's latest subscription_updated.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
       FROM generate_series(
-        date_trunc('week', now()) - interval '26 weeks',
-        date_trunc('week', now()) - interval '1 week',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
         interval '1 week'
-      ) AS w(week)
+      ) AS g(week)
+    ),
+    snaps AS (
+      SELECT w.week, b.weeks_back, w.week + 7 * (1 - b.weeks_back) AS cutoff
+      FROM weeks AS w
       CROSS JOIN (VALUES (0), (1)) AS b(weeks_back)
     ),
+    updates AS (
+      SELECT
+        properties->>'subscription_id' AS subscription_id,
+        user_id AS customer,
+        occurred_at AT TIME ZONE 'UTC' AS ts,
+        CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END AS mrr,
+        properties->>'status' AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND properties->>'subscription_id' IS NOT NULL
+        AND user_id IS NOT NULL
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+    ),
     latest AS (
-      SELECT DISTINCT ON (s.week, s.weeks_back, e.properties->>'subscription_id')
-        s.week,
-        s.weeks_back,
-        e.user_id AS customer,
-        CASE WHEN e.properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (e.properties->>'mrr')::numeric END AS mrr,
-        e.properties->>'status' AS status
+      SELECT DISTINCT ON (s.week, s.weeks_back, u.subscription_id) s.week, s.weeks_back, u.customer, u.mrr, u.status
       FROM snaps AS s
-      JOIN events AS e
-        ON e.event_name = 'subscription_updated'
-       AND e.occurred_at < s.cutoff
-      ORDER BY s.week, s.weeks_back, e.properties->>'subscription_id', e.occurred_at DESC
+      JOIN updates AS u ON u.ts < s.cutoff
+      ORDER BY s.week, s.weeks_back, u.subscription_id, u.ts DESC
     ),
     paying AS (
       SELECT DISTINCT week, weeks_back, customer
       FROM latest
       WHERE status IN ('active', 'past_due') AND mrr > 0
+    ),
+    weekly AS (
+      SELECT st.week, count(*) FILTER (WHERE en.customer IS NULL) AS churned, count(*) AS paying
+      FROM paying AS st
+      LEFT JOIN paying AS en ON en.week = st.week AND en.weeks_back = 0 AND en.customer = st.customer
+      WHERE st.weeks_back = 1
+      GROUP BY st.week
     )
     SELECT
-      st.week::date AS week,
-      count(*) FILTER (WHERE en.customer IS NULL) AS numerator,
-      count(*) AS denominator,
-      (count(*) FILTER (WHERE en.customer IS NULL))::numeric / nullif(count(*), 0) AS value
-    FROM paying AS st
-    LEFT JOIN paying AS en
-      ON en.week = st.week AND en.weeks_back = 0 AND en.customer = st.customer
-    WHERE st.weeks_back = 1
-    GROUP BY st.week
-    ORDER BY st.week;
+      w.week,
+      coalesce(c.churned, 0) AS numerator,
+      coalesce(c.paying, 0) AS denominator,
+      c.churned::numeric / nullif(c.paying, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS c ON c.week = w.week
+    ORDER BY w.week;
   bigquery: |-
-    -- Logo churn rate for each of the last 26 complete ISO weeks (Monday start, UTC): customers paying at the start of the week with no paying subscription at its end ÷ customers paying at the start. A customer is the event's user_id; paying means active or past_due with MRR above zero.
-    WITH snaps AS (
-      SELECT week, weeks_back, DATE_ADD(week, INTERVAL (1 - weeks_back) WEEK) AS cutoff
-      FROM UNNEST(GENERATE_DATE_ARRAY(
-        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK),
-        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK),
-        INTERVAL 1 WEEK
-      )) AS week
+    -- Logo churn rate for each of the last 26 complete weeks (Monday 00:00 UTC), oldest first: customers paying at the start of the week with no paying subscription at its end ÷ customers paying at the start. A customer is the user_id on the subscription; paying means active or past_due with MRR above zero, at each subscription's latest subscription_updated.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    snaps AS (
+      SELECT w.week, weeks_back, TIMESTAMP(DATE_ADD(w.week, INTERVAL (1 - weeks_back) WEEK)) AS cutoff
+      FROM weeks AS w
       CROSS JOIN UNNEST([0, 1]) AS weeks_back
     ),
-    latest AS (
+    updates AS (
       SELECT
-        s.week,
-        s.weeks_back,
-        e.user_id AS customer,
-        SAFE_CAST(JSON_VALUE(e.properties, '$.mrr') AS FLOAT64) AS mrr,
-        JSON_VALUE(e.properties, '$.status') AS status
+        JSON_VALUE(properties, '$.subscription_id') AS subscription_id,
+        user_id AS customer,
+        occurred_at,
+        SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64) AS mrr,
+        JSON_VALUE(properties, '$.status') AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND JSON_VALUE(properties, '$.subscription_id') IS NOT NULL
+        AND user_id IS NOT NULL
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+    ),
+    latest AS (
+      SELECT s.week, s.weeks_back, u.customer, u.mrr, u.status
       FROM snaps AS s
-      JOIN events AS e
-        ON DATE(e.occurred_at) < s.cutoff
-      WHERE e.event_name = 'subscription_updated'
-      QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY s.week, s.weeks_back, JSON_VALUE(e.properties, '$.subscription_id')
-        ORDER BY e.occurred_at DESC
-      ) = 1
+      CROSS JOIN updates AS u
+      WHERE u.occurred_at < s.cutoff
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY s.week, s.weeks_back, u.subscription_id ORDER BY u.occurred_at DESC) = 1
     ),
     paying AS (
       SELECT DISTINCT week, weeks_back, customer
       FROM latest
       WHERE status IN ('active', 'past_due') AND mrr > 0
+    ),
+    weekly AS (
+      SELECT st.week, COUNTIF(en.customer IS NULL) AS churned, COUNT(*) AS paying
+      FROM paying AS st
+      LEFT JOIN paying AS en ON en.week = st.week AND en.weeks_back = 0 AND en.customer = st.customer
+      WHERE st.weeks_back = 1
+      GROUP BY st.week
     )
     SELECT
-      st.week,
-      COUNTIF(en.customer IS NULL) AS numerator,
-      COUNT(*) AS denominator,
-      SAFE_DIVIDE(COUNTIF(en.customer IS NULL), COUNT(*)) AS value
-    FROM paying AS st
-    LEFT JOIN paying AS en
-      ON en.week = st.week AND en.weeks_back = 0 AND en.customer = st.customer
-    WHERE st.weeks_back = 1
-    GROUP BY st.week
-    ORDER BY st.week;
+      w.week,
+      COALESCE(c.churned, 0) AS numerator,
+      COALESCE(c.paying, 0) AS denominator,
+      SAFE_DIVIDE(c.churned, c.paying) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS c ON c.week = w.week
+    ORDER BY w.week;
   snowflake: |-
-    -- Logo churn rate for each of the last 26 complete ISO weeks (Monday start, UTC): customers paying at the start of the week with no paying subscription at its end ÷ customers paying at the start. A customer is the event's user_id; paying means active or past_due with MRR above zero. Assumes WEEK_START = 1 (Monday).
+    -- Logo churn rate for each of the last 26 complete weeks (Monday 00:00 UTC), oldest first: customers paying at the start of the week with no paying subscription at its end ÷ customers paying at the start. A customer is the user_id on the subscription; paying means active or past_due with MRR above zero, at each subscription's latest subscription_updated.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
     WITH weeks AS (
-      SELECT DATEADD(week, -ROW_NUMBER() OVER (ORDER BY SEQ4()), DATE_TRUNC('week', CURRENT_DATE())) AS week
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
       FROM TABLE(GENERATOR(ROWCOUNT => 26))
     ),
     snaps AS (
@@ -173,38 +204,45 @@ queries:
       FROM weeks AS w
       CROSS JOIN (VALUES (0), (1)) AS b (weeks_back)
     ),
-    latest AS (
+    updates AS (
       SELECT
-        s.week,
-        s.weeks_back,
-        e.user_id AS customer,
-        e.properties:mrr::float AS mrr,
-        e.properties:status::string AS status
+        properties:"subscription_id"::string AS subscription_id,
+        user_id AS customer,
+        occurred_at,
+        TRY_TO_DOUBLE(properties:"mrr"::string) AS mrr,
+        properties:"status"::string AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND properties:"subscription_id"::string IS NOT NULL
+        AND user_id IS NOT NULL
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+    ),
+    latest AS (
+      SELECT s.week, s.weeks_back, u.customer, u.mrr, u.status
       FROM snaps AS s
-      JOIN events AS e
-        ON e.event_name = 'subscription_updated'
-       AND e.occurred_at < s.cutoff
-      QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY s.week, s.weeks_back, e.properties:subscription_id::string
-        ORDER BY e.occurred_at DESC
-      ) = 1
+      JOIN updates AS u ON u.occurred_at < s.cutoff
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY s.week, s.weeks_back, u.subscription_id ORDER BY u.occurred_at DESC) = 1
     ),
     paying AS (
       SELECT DISTINCT week, weeks_back, customer
       FROM latest
       WHERE status IN ('active', 'past_due') AND mrr > 0
+    ),
+    weekly AS (
+      SELECT st.week, COUNT_IF(en.customer IS NULL) AS churned, COUNT(*) AS paying
+      FROM paying AS st
+      LEFT JOIN paying AS en ON en.week = st.week AND en.weeks_back = 0 AND en.customer = st.customer
+      WHERE st.weeks_back = 1
+      GROUP BY st.week
     )
     SELECT
-      st.week,
-      COUNT_IF(en.customer IS NULL) AS numerator,
-      COUNT(*) AS denominator,
-      COUNT_IF(en.customer IS NULL) / NULLIF(COUNT(*), 0) AS value
-    FROM paying AS st
-    LEFT JOIN paying AS en
-      ON en.week = st.week AND en.weeks_back = 0 AND en.customer = st.customer
-    WHERE st.weeks_back = 1
-    GROUP BY st.week
-    ORDER BY st.week;
+      w.week,
+      COALESCE(c.churned, 0) AS numerator,
+      COALESCE(c.paying, 0) AS denominator,
+      c.churned::float / NULLIF(c.paying, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS c ON c.week = w.week
+    ORDER BY w.week;
 
 noise:
   type: binomial

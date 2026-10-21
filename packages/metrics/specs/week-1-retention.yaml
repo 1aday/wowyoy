@@ -29,128 +29,153 @@ numerator:
 
 queries:
   hogql: |-
-    -- Week 1 retention for the 26 most recent mature cohorts (ISO weeks, Monday start, UTC, the latest starting three weeks before this one): of the people whose first event fell in the cohort week, the share with any event 7 to 14 days after it. Younger cohorts are left out until their window has closed.
+    -- Week 1 retention: of the people whose first event fell in each week, the share with any event 7 to 14 days after it. Cohort weeks 28 to 3 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their window has closed.
+    -- HogQL: paste into a PostHog SQL insight.
     SELECT
-      toString(cohort) AS week,
-      sum(retained) AS numerator,
-      count() AS denominator,
-      sum(retained) / count() AS value
+      w.week AS week,
+      coalesce(c.retained_people, 0) AS numerator,
+      coalesce(c.people, 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
     FROM (
-      SELECT
-        f.person_id AS person,
-        toMonday(f.first_at) AS cohort,
-        max(if(e.ts >= f.first_at + toIntervalDay(7) AND e.ts < f.first_at + toIntervalDay(14), 1, 0)) AS retained
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(3, 29))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, countIf(retained) AS retained_people, count() AS people
       FROM (
-        SELECT person_id, min(timestamp) AS first_at
-        FROM events
-        WHERE timestamp < toMonday(now())
-        GROUP BY person_id
-      ) AS f
-      INNER JOIN (
-        SELECT person_id, timestamp AS ts
-        FROM events
-        WHERE timestamp >= toMonday(now()) - toIntervalWeek(28)
-          AND timestamp < toMonday(now())
-      ) AS e ON e.person_id = f.person_id
-      WHERE f.first_at >= toMonday(now()) - toIntervalWeek(28)
-        AND f.first_at < toMonday(now()) - toIntervalWeek(2)
-      GROUP BY person, cohort
-    )
-    GROUP BY cohort
-    ORDER BY cohort
+        SELECT
+          toMonday(f.first_at) AS week,
+          f.person_id AS person_id,
+          countIf(e.ts >= f.first_at + toIntervalDay(7) AND e.ts < f.first_at + toIntervalDay(14)) > 0 AS retained
+        FROM (
+          SELECT person_id, min(toTimeZone(timestamp, 'UTC')) AS first_at
+          FROM events
+          WHERE person_id IS NOT NULL
+          GROUP BY person_id
+        ) AS f
+        LEFT JOIN (
+          SELECT person_id, toTimeZone(timestamp, 'UTC') AS ts
+          FROM events
+          WHERE person_id IS NOT NULL
+            AND timestamp >= now() - toIntervalWeek(29)
+        ) AS e ON e.person_id = f.person_id
+        WHERE toMonday(f.first_at) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(28) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(3)
+        GROUP BY week, person_id
+      )
+      GROUP BY week
+    ) AS c ON c.week = w.week
+    ORDER BY week
   postgres: |-
-    -- Week 1 retention for the 26 most recent mature cohorts (ISO weeks, Monday start, UTC, the latest starting three weeks before this one): of the people whose first event fell in the cohort week, the share with any event 7 to 14 days after it. Younger cohorts are left out until their window has closed.
-    WITH firsts AS (
-      SELECT user_id, min(occurred_at) AS first_at
+    -- Week 1 retention: of the people whose first event fell in each week, the share with any event 7 to 14 days after it. Cohort weeks 28 to 3 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their window has closed.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '28 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '3 weeks',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    firsts AS (
+      SELECT user_id, min(occurred_at AT TIME ZONE 'UTC') AS first_at
       FROM events
       WHERE user_id IS NOT NULL
       GROUP BY user_id
     ),
     cohort AS (
-      SELECT user_id, first_at, date_trunc('week', first_at)::date AS week
-      FROM firsts
-      WHERE first_at >= date_trunc('week', now()) - interval '28 weeks'
-        AND first_at < date_trunc('week', now()) - interval '2 weeks'
-    ),
-    retained AS (
-      SELECT DISTINCT c.user_id
-      FROM cohort AS c
-      JOIN events AS e
-        ON e.user_id = c.user_id
-       AND e.occurred_at >= c.first_at + interval '7 days'
-       AND e.occurred_at < c.first_at + interval '14 days'
+      SELECT
+        date_trunc('week', f.first_at)::date AS week,
+        f.user_id,
+        count(e.occurred_at) > 0 AS retained
+      FROM firsts AS f
+      LEFT JOIN events AS e
+        ON e.user_id = f.user_id
+       AND e.occurred_at AT TIME ZONE 'UTC' >= f.first_at + interval '7 days'
+       AND e.occurred_at AT TIME ZONE 'UTC' < f.first_at + interval '14 days'
+      WHERE f.first_at >= date_trunc('week', now() AT TIME ZONE 'UTC') - interval '28 weeks'
+        AND f.first_at < date_trunc('week', now() AT TIME ZONE 'UTC') - interval '2 weeks'
+      GROUP BY 1, 2
     )
     SELECT
-      c.week,
-      count(r.user_id) AS numerator,
-      count(*) AS denominator,
-      count(r.user_id)::numeric / count(*) AS value
-    FROM cohort AS c
-    LEFT JOIN retained AS r ON r.user_id = c.user_id
-    GROUP BY c.week
-    ORDER BY c.week;
+      w.week,
+      count(c.user_id) FILTER (WHERE c.retained) AS numerator,
+      count(c.user_id) AS denominator,
+      (count(c.user_id) FILTER (WHERE c.retained))::numeric / nullif(count(c.user_id), 0) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
   bigquery: |-
-    -- Week 1 retention for the 26 most recent mature cohorts (ISO weeks, Monday start, UTC, the latest starting three weeks before this one): of the people whose first event fell in the cohort week, the share with any event 7 to 14 days after it. Younger cohorts are left out until their window has closed.
-    WITH firsts AS (
+    -- Week 1 retention: of the people whose first event fell in each week, the share with any event 7 to 14 days after it. Cohort weeks 28 to 3 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their window has closed.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 28 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 3 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    firsts AS (
       SELECT user_id, MIN(occurred_at) AS first_at
       FROM events
       WHERE user_id IS NOT NULL
       GROUP BY user_id
     ),
     cohort AS (
-      SELECT user_id, first_at, DATE_TRUNC(DATE(first_at), ISOWEEK) AS week
-      FROM firsts
-      WHERE first_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 28 WEEK))
-        AND first_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 2 WEEK))
-    ),
-    retained AS (
-      SELECT DISTINCT c.user_id
-      FROM cohort AS c
-      JOIN events AS e
-        ON e.user_id = c.user_id
-       AND e.occurred_at >= TIMESTAMP_ADD(c.first_at, INTERVAL 7 DAY)
-       AND e.occurred_at < TIMESTAMP_ADD(c.first_at, INTERVAL 14 DAY)
+      SELECT
+        DATE_TRUNC(DATE(f.first_at), ISOWEEK) AS week,
+        f.user_id,
+        COUNT(e.occurred_at) > 0 AS retained
+      FROM firsts AS f
+      LEFT JOIN events AS e
+        ON e.user_id = f.user_id
+       AND e.occurred_at >= TIMESTAMP_ADD(f.first_at, INTERVAL 7 DAY)
+       AND e.occurred_at < TIMESTAMP_ADD(f.first_at, INTERVAL 14 DAY)
+      WHERE f.first_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 28 WEEK))
+        AND f.first_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 2 WEEK))
+      GROUP BY week, f.user_id
     )
     SELECT
-      c.week,
-      COUNT(r.user_id) AS numerator,
-      COUNT(*) AS denominator,
-      SAFE_DIVIDE(COUNT(r.user_id), COUNT(*)) AS value
-    FROM cohort AS c
-    LEFT JOIN retained AS r ON r.user_id = c.user_id
-    GROUP BY c.week
-    ORDER BY c.week;
+      w.week,
+      COUNTIF(c.retained) AS numerator,
+      COUNT(c.user_id) AS denominator,
+      SAFE_DIVIDE(COUNTIF(c.retained), COUNT(c.user_id)) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
   snowflake: |-
-    -- Week 1 retention for the 26 most recent mature cohorts (ISO weeks, Monday start, UTC, the latest starting three weeks before this one): of the people whose first event fell in the cohort week, the share with any event 7 to 14 days after it. Younger cohorts are left out until their window has closed. Assumes WEEK_START = 1 (Monday).
-    WITH firsts AS (
+    -- Week 1 retention: of the people whose first event fell in each week, the share with any event 7 to 14 days after it. Cohort weeks 28 to 3 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their window has closed.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -2 - ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    firsts AS (
       SELECT user_id, MIN(occurred_at) AS first_at
       FROM events
       WHERE user_id IS NOT NULL
       GROUP BY user_id
     ),
     cohort AS (
-      SELECT user_id, first_at, DATE_TRUNC('week', first_at)::date AS week
-      FROM firsts
-      WHERE first_at >= DATEADD(week, -28, DATE_TRUNC('week', CURRENT_DATE()))
-        AND first_at < DATEADD(week, -2, DATE_TRUNC('week', CURRENT_DATE()))
-    ),
-    retained AS (
-      SELECT DISTINCT c.user_id
-      FROM cohort AS c
-      JOIN events AS e
-        ON e.user_id = c.user_id
-       AND e.occurred_at >= DATEADD(day, 7, c.first_at)
-       AND e.occurred_at < DATEADD(day, 14, c.first_at)
+      SELECT
+        DATEADD(day, 1 - DAYOFWEEKISO(f.first_at), f.first_at::date) AS week,
+        f.user_id,
+        COUNT(e.occurred_at) > 0 AS retained
+      FROM firsts AS f
+      LEFT JOIN events AS e
+        ON e.user_id = f.user_id
+       AND e.occurred_at >= DATEADD(day, 7, f.first_at)
+       AND e.occurred_at < DATEADD(day, 14, f.first_at)
+      WHERE f.first_at >= DATEADD(week, -28, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND f.first_at < DATEADD(week, -2, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+      GROUP BY 1, 2
     )
     SELECT
-      c.week,
-      COUNT(r.user_id) AS numerator,
-      COUNT(*) AS denominator,
-      COUNT(r.user_id) / NULLIF(COUNT(*), 0) AS value
-    FROM cohort AS c
-    LEFT JOIN retained AS r ON r.user_id = c.user_id
-    GROUP BY c.week
-    ORDER BY c.week;
+      w.week,
+      COUNT_IF(c.retained) AS numerator,
+      COUNT(c.user_id) AS denominator,
+      COUNT_IF(c.retained)::float / NULLIF(COUNT(c.user_id), 0) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
 
 noise:
   type: process

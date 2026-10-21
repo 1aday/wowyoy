@@ -31,114 +31,144 @@ numerator:
 
 queries:
   hogql: |-
-    -- MRR at the end of each of the last 26 weeks: each subscription's latest state before the week closed.
-    SELECT toString(week) AS week, sum(mrr) AS value
+    -- MRR at the end of each week: the monthly amounts of every active or past-due subscription, each at its latest subscription_updated before Monday 00:00 UTC. Last 26 complete weeks, oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT w.week AS week, coalesce(m.mrr, 0) AS value
     FROM (
-      SELECT
-        w.week AS week,
-        e.subscription_id AS subscription_id,
-        argMax(e.mrr, e.ts) AS mrr,
-        argMax(e.status, e.ts) AS status
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, sum(tupleElement(latest, 1)) AS mrr
       FROM (
-        SELECT arrayJoin(arrayMap(i -> toMonday(now()) - toIntervalWeek(i), range(1, 27))) AS week
-      ) AS w
-      CROSS JOIN (
-        SELECT
-          toString(properties.subscription_id) AS subscription_id,
-          toFloat(properties.mrr) AS mrr,
-          toString(properties.status) AS status,
-          timestamp AS ts
-        FROM events
-        WHERE event = 'subscription_updated'
-      ) AS e
-      WHERE e.ts < w.week + toIntervalWeek(1)
-      GROUP BY week, subscription_id
-    )
-    WHERE status IN ('active', 'past_due')
-    GROUP BY week
+        SELECT s.week AS week, u.subscription_id AS subscription_id, argMax(tuple(u.mrr, u.status), u.ts) AS latest
+        FROM (
+          SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+        ) AS s
+        CROSS JOIN (
+          SELECT
+            toString(properties.subscription_id) AS subscription_id,
+            toTimeZone(timestamp, 'UTC') AS ts,
+            toFloat(properties.mrr) AS mrr,
+            toString(properties.status) AS status
+          FROM events
+          WHERE event = 'subscription_updated'
+            AND properties.subscription_id IS NOT NULL
+            AND toMonday(toTimeZone(timestamp, 'UTC')) < toMonday(toTimeZone(now(), 'UTC'))
+        ) AS u
+        WHERE toMonday(u.ts) <= s.week
+        GROUP BY week, subscription_id
+      )
+      WHERE tupleElement(latest, 2) IN ('active', 'past_due')
+      GROUP BY week
+    ) AS m ON m.week = w.week
     ORDER BY week
   postgres: |-
-    -- MRR at the end of each week from a subscription change log.
+    -- MRR at the end of each week: the monthly amounts of every active or past-due subscription, each at its latest subscription_updated before Monday 00:00 UTC. Last 26 complete weeks, oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
     WITH weeks AS (
-      SELECT generate_series(
-        date_trunc('week', now() - interval '26 weeks'),
-        date_trunc('week', now()) - interval '1 week',
+      SELECT g.week::date AS week, g.week + interval '1 week' AS week_end
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
         interval '1 week'
-      ) AS week
+      ) AS g(week)
+    ),
+    updates AS (
+      SELECT
+        properties->>'subscription_id' AS subscription_id,
+        occurred_at AT TIME ZONE 'UTC' AS ts,
+        CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END AS mrr,
+        properties->>'status' AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND properties->>'subscription_id' IS NOT NULL
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
     ),
     latest AS (
-      SELECT DISTINCT ON (w.week, e.properties->>'subscription_id')
-        w.week,
-        CASE WHEN e.properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (e.properties->>'mrr')::numeric END AS mrr,
-        e.properties->>'status' AS status
-      FROM weeks w
-      JOIN events e
-        ON e.event_name = 'subscription_updated'
-       AND e.occurred_at < w.week + interval '1 week'
-      ORDER BY w.week, e.properties->>'subscription_id', e.occurred_at DESC
+      SELECT DISTINCT ON (w.week, u.subscription_id) w.week, u.mrr, u.status
+      FROM weeks AS w
+      JOIN updates AS u ON u.ts < w.week_end
+      ORDER BY w.week, u.subscription_id, u.ts DESC
+    ),
+    mrr AS (
+      SELECT week, sum(mrr) AS mrr
+      FROM latest
+      WHERE status IN ('active', 'past_due')
+      GROUP BY week
     )
-    SELECT week::date AS week, sum(mrr) AS value
-    FROM latest
-    WHERE status IN ('active', 'past_due')
-    GROUP BY week
-    ORDER BY week;
+    SELECT w.week, coalesce(m.mrr, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN mrr AS m ON m.week = w.week
+    ORDER BY w.week;
   bigquery: |-
-    -- MRR at the end of each week from a subscription change log.
+    -- MRR at the end of each week: the monthly amounts of every active or past-due subscription, each at its latest subscription_updated before Monday 00:00 UTC. Last 26 complete weeks, oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
     WITH weeks AS (
       SELECT week
-      FROM UNNEST(GENERATE_DATE_ARRAY(
-        DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 26 WEEK), ISOWEEK),
-        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK),
-        INTERVAL 1 WEEK
-      )) AS week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    updates AS (
+      SELECT
+        JSON_VALUE(properties, '$.subscription_id') AS subscription_id,
+        occurred_at,
+        SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64) AS mrr,
+        JSON_VALUE(properties, '$.status') AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND JSON_VALUE(properties, '$.subscription_id') IS NOT NULL
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
     ),
     latest AS (
-      SELECT
-        w.week,
-        JSON_VALUE(e.properties, '$.subscription_id') AS subscription_id,
-        CAST(JSON_VALUE(e.properties, '$.mrr') AS FLOAT64) AS mrr,
-        JSON_VALUE(e.properties, '$.status') AS status
+      SELECT w.week, u.mrr, u.status
       FROM weeks AS w
-      JOIN events AS e
-        ON e.event_name = 'subscription_updated'
-       AND DATE(e.occurred_at) < DATE_ADD(w.week, INTERVAL 1 WEEK)
-      WHERE TRUE
-      QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY w.week, JSON_VALUE(e.properties, '$.subscription_id')
-        ORDER BY e.occurred_at DESC
-      ) = 1
+      CROSS JOIN updates AS u
+      WHERE u.occurred_at < TIMESTAMP(DATE_ADD(w.week, INTERVAL 1 WEEK))
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY w.week, u.subscription_id ORDER BY u.occurred_at DESC) = 1
+    ),
+    mrr AS (
+      SELECT week, SUM(mrr) AS mrr
+      FROM latest
+      WHERE status IN ('active', 'past_due')
+      GROUP BY week
     )
-    SELECT week, SUM(mrr) AS value
-    FROM latest
-    WHERE status IN ('active', 'past_due')
-    GROUP BY week
-    ORDER BY week;
+    SELECT w.week, COALESCE(m.mrr, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN mrr AS m ON m.week = w.week
+    ORDER BY w.week;
   snowflake: |-
-    -- MRR at the end of each week from a subscription change log. Assumes WEEK_START = 1 (Monday).
+    -- MRR at the end of each week: the monthly amounts of every active or past-due subscription, each at its latest subscription_updated before Monday 00:00 UTC. Last 26 complete weeks, oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
     WITH weeks AS (
-      SELECT DATEADD(week, -(ROW_NUMBER() OVER (ORDER BY SEQ4()) - 1), DATE_TRUNC('week', DATEADD(week, -1, CURRENT_DATE()))) AS week
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
       FROM TABLE(GENERATOR(ROWCOUNT => 26))
     ),
-    latest AS (
+    updates AS (
       SELECT
-        w.week,
-        e.properties:subscription_id::string AS subscription_id,
-        e.properties:mrr::float AS mrr,
-        e.properties:status::string AS status
+        properties:"subscription_id"::string AS subscription_id,
+        occurred_at,
+        TRY_TO_DOUBLE(properties:"mrr"::string) AS mrr,
+        properties:"status"::string AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND properties:"subscription_id"::string IS NOT NULL
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+    ),
+    latest AS (
+      SELECT w.week, u.mrr, u.status
       FROM weeks AS w
-      JOIN events AS e
-        ON e.event_name = 'subscription_updated'
-       AND e.occurred_at < DATEADD(week, 1, w.week)
-      QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY w.week, e.properties:subscription_id::string
-        ORDER BY e.occurred_at DESC
-      ) = 1
+      JOIN updates AS u ON u.occurred_at < DATEADD(week, 1, w.week)
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY w.week, u.subscription_id ORDER BY u.occurred_at DESC) = 1
+    ),
+    mrr AS (
+      SELECT week, SUM(mrr) AS mrr
+      FROM latest
+      WHERE status IN ('active', 'past_due')
+      GROUP BY week
     )
-    SELECT week, SUM(mrr) AS value
-    FROM latest
-    WHERE status IN ('active', 'past_due')
-    GROUP BY week
-    ORDER BY week;
+    SELECT w.week, COALESCE(m.mrr, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN mrr AS m ON m.week = w.week
+    ORDER BY w.week;
 
 noise:
   type: process

@@ -37,60 +37,110 @@ denominator:
 
 queries:
   hogql: |-
-    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel.
-    SELECT week, numerator, denominator, if(denominator > 0, numerator / denominator * 1000, NULL) AS value
+    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT
+      w.week AS week,
+      coalesce(s.spend, 0) AS numerator,
+      coalesce(s.impressions, 0) AS denominator,
+      if(coalesce(s.impressions, 0) = 0, NULL, s.spend / s.impressions * 1000) AS value
     FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
       SELECT
-        toMonday(timestamp) AS week,
-        sum(toFloat(properties.spend)) AS numerator,
-        sum(toFloat(properties.impressions)) AS denominator
+        toMonday(toTimeZone(timestamp, 'UTC')) AS week,
+        sum(toFloat(properties.spend)) AS spend,
+        sum(toFloat(properties.impressions)) AS impressions
       FROM events
       WHERE event = 'ad_spend'
-        AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
-        AND timestamp < toStartOfWeek(now(), 1)
+        AND timestamp >= now() - toIntervalWeek(27)
+        AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
       GROUP BY week
-    )
+    ) AS s ON s.week = w.week
     ORDER BY week
   postgres: |-
-    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel.
+    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    spend AS (
+      SELECT
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week,
+        sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END) AS spend,
+        sum(CASE WHEN properties->>'impressions' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'impressions')::numeric END) AS impressions
+      FROM events
+      WHERE event_name = 'ad_spend'
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+      GROUP BY 1
+    )
     SELECT
-      date_trunc('week', occurred_at)::date AS week,
-      sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END) AS numerator,
-      sum(CASE WHEN properties->>'impressions' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'impressions')::numeric END) AS denominator,
-      sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END) / nullif(sum(CASE WHEN properties->>'impressions' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'impressions')::numeric END), 0) * 1000 AS value
-    FROM events
-    WHERE event_name = 'ad_spend'
-      AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
-      AND occurred_at < date_trunc('week', now())
-    GROUP BY 1
-    ORDER BY 1;
+      w.week,
+      coalesce(s.spend, 0) AS numerator,
+      coalesce(s.impressions, 0) AS denominator,
+      s.spend / nullif(s.impressions, 0) * 1000 AS value
+    FROM weeks AS w
+    LEFT JOIN spend AS s ON s.week = w.week
+    ORDER BY w.week;
   bigquery: |-
-    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel.
+    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    spend AS (
+      SELECT
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
+        SUM(SAFE_CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64)) AS spend,
+        SUM(SAFE_CAST(JSON_VALUE(properties, '$.impressions') AS FLOAT64)) AS impressions
+      FROM events
+      WHERE event_name = 'ad_spend'
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      GROUP BY week
+    )
     SELECT
-      DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
-      SUM(CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64)) AS numerator,
-      SUM(CAST(JSON_VALUE(properties, '$.impressions') AS FLOAT64)) AS denominator,
-      SAFE_DIVIDE(SUM(CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64)), SUM(CAST(JSON_VALUE(properties, '$.impressions') AS FLOAT64))) * 1000 AS value
-    FROM events
-    WHERE event_name = 'ad_spend'
-      AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
-      AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
-    GROUP BY week
-    ORDER BY week;
+      w.week,
+      COALESCE(s.spend, 0) AS numerator,
+      COALESCE(s.impressions, 0) AS denominator,
+      SAFE_DIVIDE(s.spend, s.impressions) * 1000 AS value
+    FROM weeks AS w
+    LEFT JOIN spend AS s ON s.week = w.week
+    ORDER BY w.week;
   snowflake: |-
-    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel.
-    -- Assumes WEEK_START = 1 (Monday).
+    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    spend AS (
+      SELECT
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week,
+        SUM(TRY_TO_DOUBLE(properties:"spend"::string)) AS spend,
+        SUM(TRY_TO_DOUBLE(properties:"impressions"::string)) AS impressions
+      FROM events
+      WHERE event_name = 'ad_spend'
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+      GROUP BY 1
+    )
     SELECT
-      DATE_TRUNC('week', occurred_at)::date AS week,
-      SUM(properties:"spend"::float) AS numerator,
-      SUM(properties:"impressions"::float) AS denominator,
-      DIV0NULL(SUM(properties:"spend"::float), SUM(properties:"impressions"::float)) * 1000 AS value
-    FROM events
-    WHERE event_name = 'ad_spend'
-      AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
-      AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
-    GROUP BY 1
-    ORDER BY 1;
+      w.week,
+      COALESCE(s.spend, 0) AS numerator,
+      COALESCE(s.impressions, 0) AS denominator,
+      s.spend / NULLIF(s.impressions, 0) * 1000 AS value
+    FROM weeks AS w
+    LEFT JOIN spend AS s ON s.week = w.week
+    ORDER BY w.week;
 
 noise:
   type: process

@@ -45,84 +45,118 @@ denominator:
 
 queries:
   hogql: |-
-    -- Second order rate: of customers whose first order fell in each week, the share who placed another order within 90 days of it. First-order weeks 39 to 14 weeks ago; younger cohorts are left out until their 90 days close.
+    -- Second order rate: of customers whose first order fell in each week, the share who placed another order (not a repeat of the first order's id) within 90 days of it. First-order weeks 39 to 14 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their 90 days close.
+    -- HogQL: paste into a PostHog SQL insight.
     SELECT
-      toString(week_start) AS week,
-      countIf(reordered) AS numerator,
-      count() AS denominator,
-      if(count() > 0, countIf(reordered) / count(), NULL) AS value
+      w.week AS week,
+      coalesce(c.reordered_customers, 0) AS numerator,
+      coalesce(c.customers, 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
     FROM (
-      SELECT
-        toMonday(f.first_at) AS week_start,
-        countIf(o.order_id != f.first_order_id AND o.ts > f.first_at AND o.ts <= f.first_at + toIntervalDay(90)) > 0 AS reordered
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(14, 40))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, countIf(reordered) AS reordered_customers, count() AS customers
       FROM (
         SELECT
-          coalesce(properties.customer_id, toString(person_id)) AS customer_id,
-          min(timestamp) AS first_at,
-          argMin(properties.order_id, timestamp) AS first_order_id
-        FROM events
-        WHERE event = 'order_completed'
-          AND properties.is_first_order = 'true'
-          AND timestamp >= toMonday(now()) - toIntervalWeek(39)
-          AND timestamp < toMonday(now()) - toIntervalWeek(13)
-        GROUP BY customer_id
-      ) AS f
-      INNER JOIN (
-        SELECT
-          coalesce(properties.customer_id, toString(person_id)) AS customer_id,
-          properties.order_id AS order_id,
-          timestamp AS ts
-        FROM events
-        WHERE event = 'order_completed'
-          AND timestamp >= toMonday(now()) - toIntervalWeek(39)
-      ) AS o ON o.customer_id = f.customer_id
-      GROUP BY week_start, f.customer_id
-    )
-    GROUP BY week_start
-    ORDER BY week_start
+          toMonday(f.first_at) AS week,
+          f.customer_id AS customer_id,
+          countIf(coalesce(o.order_id != f.first_order_id, 1) AND o.ts > f.first_at AND o.ts <= f.first_at + toIntervalDay(90)) > 0 AS reordered
+        FROM (
+          SELECT
+            customer_id,
+            min(ts) AS first_at,
+            tupleElement(argMin(tuple(order_id), ts), 1) AS first_order_id
+          FROM (
+            SELECT
+              coalesce(properties.customer_id, toString(person_id)) AS customer_id,
+              properties.order_id AS order_id,
+              toTimeZone(timestamp, 'UTC') AS ts
+            FROM events
+            WHERE event = 'order_completed'
+              AND properties.is_first_order = 'true'
+              AND timestamp >= now() - toIntervalWeek(40)
+              AND toMonday(toTimeZone(timestamp, 'UTC')) >= toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(39)
+          )
+          WHERE customer_id IS NOT NULL
+          GROUP BY customer_id
+        ) AS f
+        LEFT JOIN (
+          SELECT
+            coalesce(properties.customer_id, toString(person_id)) AS customer_id,
+            properties.order_id AS order_id,
+            toTimeZone(timestamp, 'UTC') AS ts
+          FROM events
+          WHERE event = 'order_completed'
+            AND timestamp >= now() - toIntervalWeek(40)
+            AND toMonday(toTimeZone(timestamp, 'UTC')) >= toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(39)
+        ) AS o ON o.customer_id = f.customer_id
+        WHERE toMonday(f.first_at) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(39) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(14)
+        GROUP BY week, customer_id
+      )
+      GROUP BY week
+    ) AS c ON c.week = w.week
+    ORDER BY week
   postgres: |-
-    -- Second order rate: of customers whose first order fell in each week, the share who placed another order within 90 days of it. First-order weeks 39 to 14 weeks ago; younger cohorts are left out until their 90 days close.
-    WITH paid_orders AS (
+    -- Second order rate: of customers whose first order fell in each week, the share who placed another order (not a repeat of the first order's id) within 90 days of it. First-order weeks 39 to 14 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their 90 days close.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '39 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '14 weeks',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    orders AS (
       SELECT
         coalesce(properties->>'customer_id', user_id) AS customer_id,
         properties->>'order_id' AS order_id,
         properties->>'is_first_order' = 'true' AS is_first_order,
-        occurred_at
+        occurred_at AT TIME ZONE 'UTC' AS ts
       FROM events
       WHERE event_name = 'order_completed'
-        AND occurred_at >= date_trunc('week', now()) - interval '39 weeks'
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '39 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
     ),
     first_orders AS (
-      SELECT DISTINCT ON (customer_id) customer_id, order_id AS first_order_id, occurred_at AS first_at
-      FROM paid_orders
+      SELECT DISTINCT ON (customer_id) customer_id, order_id AS first_order_id, ts AS first_at
+      FROM orders
       WHERE is_first_order
-        AND occurred_at < date_trunc('week', now()) - interval '13 weeks'
-      ORDER BY customer_id, occurred_at
+        AND customer_id IS NOT NULL
+        AND ts < date_trunc('week', now() AT TIME ZONE 'UTC') - interval '13 weeks'
+      ORDER BY customer_id, ts
     ),
     cohort AS (
       SELECT
         date_trunc('week', f.first_at)::date AS week,
         f.customer_id,
-        count(o.order_id) > 0 AS reordered
-      FROM first_orders f
-      LEFT JOIN paid_orders o
+        count(o.ts) > 0 AS reordered
+      FROM first_orders AS f
+      LEFT JOIN orders AS o
         ON o.customer_id = f.customer_id
-       AND o.order_id <> f.first_order_id
-       AND o.occurred_at > f.first_at
-       AND o.occurred_at <= f.first_at + interval '90 days'
-      GROUP BY week, f.customer_id
+       AND coalesce(o.order_id <> f.first_order_id, true)
+       AND o.ts > f.first_at
+       AND o.ts <= f.first_at + interval '90 days'
+      GROUP BY 1, 2
     )
     SELECT
-      week,
-      count(*) FILTER (WHERE reordered) AS numerator,
-      count(*) AS denominator,
-      (count(*) FILTER (WHERE reordered))::numeric / nullif(count(*), 0) AS value
-    FROM cohort
-    GROUP BY week
-    ORDER BY week;
+      w.week,
+      count(c.customer_id) FILTER (WHERE c.reordered) AS numerator,
+      count(c.customer_id) AS denominator,
+      (count(c.customer_id) FILTER (WHERE c.reordered))::numeric / nullif(count(c.customer_id), 0) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
   bigquery: |-
-    -- Second order rate: of customers whose first order fell in each week, the share who placed another order within 90 days of it. First-order weeks 39 to 14 weeks ago; younger cohorts are left out until their 90 days close.
-    WITH paid_orders AS (
+    -- Second order rate: of customers whose first order fell in each week, the share who placed another order (not a repeat of the first order's id) within 90 days of it. First-order weeks 39 to 14 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their 90 days close.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 39 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 14 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    orders AS (
       SELECT
         COALESCE(JSON_VALUE(properties, '$.customer_id'), user_id) AS customer_id,
         JSON_VALUE(properties, '$.order_id') AS order_id,
@@ -131,75 +165,86 @@ queries:
       FROM events
       WHERE event_name = 'order_completed'
         AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 39 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
     ),
     first_orders AS (
-      SELECT customer_id, MIN(occurred_at) AS first_at, MIN_BY(order_id, occurred_at) AS first_order_id
-      FROM paid_orders
+      SELECT customer_id, order_id AS first_order_id, occurred_at AS first_at
+      FROM orders
       WHERE is_first_order
+        AND customer_id IS NOT NULL
         AND occurred_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 13 WEEK))
-      GROUP BY customer_id
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY occurred_at) = 1
     ),
     cohort AS (
       SELECT
         DATE_TRUNC(DATE(f.first_at), ISOWEEK) AS week,
         f.customer_id,
-        COUNT(o.order_id) > 0 AS reordered
+        COUNT(o.occurred_at) > 0 AS reordered
       FROM first_orders AS f
-      LEFT JOIN paid_orders AS o
+      LEFT JOIN orders AS o
         ON o.customer_id = f.customer_id
-       AND o.order_id != f.first_order_id
+       AND COALESCE(o.order_id != f.first_order_id, TRUE)
        AND o.occurred_at > f.first_at
        AND o.occurred_at <= TIMESTAMP_ADD(f.first_at, INTERVAL 90 DAY)
       GROUP BY week, f.customer_id
     )
     SELECT
-      week,
-      COUNTIF(reordered) AS numerator,
-      COUNT(*) AS denominator,
-      SAFE_DIVIDE(COUNTIF(reordered), COUNT(*)) AS value
-    FROM cohort
-    GROUP BY week
-    ORDER BY week;
+      w.week,
+      COUNTIF(c.reordered) AS numerator,
+      COUNT(c.customer_id) AS denominator,
+      SAFE_DIVIDE(COUNTIF(c.reordered), COUNT(c.customer_id)) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
   snowflake: |-
-    -- Second order rate: of customers whose first order fell in each week, the share who placed another order within 90 days of it. First-order weeks 39 to 14 weeks ago; younger cohorts are left out until their 90 days close. Assumes WEEK_START = 1 (Monday).
-    WITH paid_orders AS (
+    -- Second order rate: of customers whose first order fell in each week, the share who placed another order (not a repeat of the first order's id) within 90 days of it. First-order weeks 39 to 14 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their 90 days close.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -13 - ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    orders AS (
       SELECT
-        COALESCE(properties:customer_id::string, user_id) AS customer_id,
-        properties:order_id::string AS order_id,
-        properties:is_first_order::boolean AS is_first_order,
+        COALESCE(properties:"customer_id"::string, user_id) AS customer_id,
+        properties:"order_id"::string AS order_id,
+        properties:"is_first_order"::string = 'true' AS is_first_order,
         occurred_at
       FROM events
       WHERE event_name = 'order_completed'
-        AND occurred_at >= DATEADD(week, -39, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at >= DATEADD(week, -39, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
     ),
     first_orders AS (
-      SELECT customer_id, MIN(occurred_at) AS first_at, MIN_BY(order_id, occurred_at) AS first_order_id
-      FROM paid_orders
+      SELECT customer_id, order_id AS first_order_id, occurred_at AS first_at
+      FROM orders
       WHERE is_first_order
-        AND occurred_at < DATEADD(week, -13, DATE_TRUNC('week', CURRENT_DATE()))
-      GROUP BY customer_id
+        AND customer_id IS NOT NULL
+        AND occurred_at < DATEADD(week, -13, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY occurred_at) = 1
     ),
     cohort AS (
       SELECT
-        DATE_TRUNC('week', f.first_at)::date AS week,
+        DATEADD(day, 1 - DAYOFWEEKISO(f.first_at), f.first_at::date) AS week,
         f.customer_id,
-        COUNT(o.order_id) > 0 AS reordered
+        COUNT(o.occurred_at) > 0 AS reordered
       FROM first_orders AS f
-      LEFT JOIN paid_orders AS o
+      LEFT JOIN orders AS o
         ON o.customer_id = f.customer_id
-       AND o.order_id != f.first_order_id
+       AND COALESCE(o.order_id <> f.first_order_id, TRUE)
        AND o.occurred_at > f.first_at
        AND o.occurred_at <= DATEADD(day, 90, f.first_at)
-      GROUP BY week, f.customer_id
+      GROUP BY 1, 2
     )
     SELECT
-      week,
-      COUNT_IF(reordered) AS numerator,
-      COUNT(*) AS denominator,
-      DIV0NULL(COUNT_IF(reordered), COUNT(*)) AS value
-    FROM cohort
-    GROUP BY week
-    ORDER BY week;
+      w.week,
+      COUNT_IF(c.reordered) AS numerator,
+      COUNT(c.customer_id) AS denominator,
+      COUNT_IF(c.reordered)::float / NULLIF(COUNT(c.customer_id), 0) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
 
 noise:
   type: binomial
