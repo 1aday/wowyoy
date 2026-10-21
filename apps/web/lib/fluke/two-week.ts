@@ -157,6 +157,8 @@ export const TWO_WEEK_CAVEAT =
 export interface ReportOptions {
   /** What one unit of volume is, from a spec: "checkouts started a week". */
   volumeUnit?: string
+  /** A spec's own minimum weekly volume, when the test runs for one metric. */
+  minVolume?: number
 }
 
 export function runTwoWeek(values: TwoWeekValues, opts: ReportOptions = {}): TwoWeekReport | { error: string } {
@@ -164,7 +166,7 @@ export function runTwoWeek(values: TwoWeekValues, opts: ReportOptions = {}): Two
   if (error) return { error }
   const { kind, before, after } = values
   const f = kind === "rate" ? 100 : 1
-  const v = twoWeekTest({ kind, before: before / f, after: after / f, volume: values.volume, cv: values.cv })
+  const v = twoWeekTest({ kind, before: before / f, after: after / f, volume: values.volume, cv: values.cv, min_denominator: opts.minVolume })
   if (!v) return { error: "These numbers can't be tested." }
 
   const round = (x: number) => Number(x.toPrecision(10))

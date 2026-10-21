@@ -12,7 +12,7 @@ import evidenceFile from "./evidence.json" with { type: "json" }
  * 3. It is not a result page (Fluke results and badges are never indexed).
  *
  * Evidence lives in evidence.json until the referrer log and Search Console job write it to a
- * database; the shape is the page_index_state row the plan describes.
+ * database, as one page_index_state row per URL.
  */
 
 export interface PageEvidence {

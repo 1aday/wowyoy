@@ -31,7 +31,9 @@ export function samplingSigma(type: NoiseType, value: number, volume: number, cv
   if (!(volume > 0)) return null
   switch (type) {
     case "binomial": {
-      const p = Math.min(Math.max(value, 0), 1)
+      // At 0% or 100% the plain σ is 0 and any move would clear it; half an event keeps it honest.
+      const half = 0.5 / volume
+      const p = Math.min(Math.max(value, half), 1 - half)
       return Math.sqrt((p * (1 - p)) / volume)
     }
     case "poisson":
@@ -76,9 +78,11 @@ export function bandAtVolumes(spec: NoiseSpec & { typical: number }, volumes: re
 export function volumeToDetect(spec: NoiseSpec & { typical: number }, relativeMove: number): number | null {
   if (spec.type === "process" || !(relativeMove > 0)) return null
   // floor(V) = k/√V for every noise type, so V = (k / move)².
-  const atOne = samplingFloor(spec.type, spec.typical, 1, spec.cv)
-  if (atOne == null || spec.typical === 0) return null
-  const k = atOne / Math.abs(spec.typical)
+  // Read k at a large volume, where the binomial's half-event correction doesn't bite.
+  const ref = 1e6
+  const atRef = samplingFloor(spec.type, spec.typical, ref, spec.cv)
+  if (atRef == null || spec.typical === 0) return null
+  const k = (atRef * Math.sqrt(ref)) / Math.abs(spec.typical)
   return Math.ceil((k / relativeMove) ** 2)
 }
 
@@ -140,7 +144,8 @@ export function judge(values: readonly number[], spec: NoiseSpec, volumes?: read
 
   const mid = (after + before) / 2
   const floor = spec.type === "process" || volume == null ? null : samplingFloor(spec.type, mid, volume, spec.cv)
-  const clearsFloor = floor == null ? null : Math.abs(change) >= floor
+  // No change is never a move, and a zero floor (a count or amount of nothing) proves nothing.
+  const clearsFloor = floor == null ? null : change !== 0 && floor > 0 && Math.abs(change) >= floor
   const process = n >= FLUKE_MIN_WEEKS ? flukeTest(values) : null
   const clearsProcess = process ? process.call === "real" || process.call === "building" : null
 
@@ -158,13 +163,13 @@ export function judge(values: readonly number[], spec: NoiseSpec, volumes?: read
   let call: NoiseCall
   if (!tests.length) call = "edge"
   else if (tests.every(Boolean)) call = "real"
-  else if (process?.call === "edge" || (floor != null && Math.abs(change) >= 0.8 * floor && clearsProcess !== false)) call = "edge"
+  else if (process?.call === "edge" || (floor != null && floor > 0 && change !== 0 && Math.abs(change) >= 0.8 * floor && clearsProcess !== false)) call = "edge"
   else call = "noise"
 
   const reason =
     call === "real"
       ? floor != null
-        ? `A move this size happens by chance ${fmtOne(oneInWeeks ?? Infinity)} at this volume, and it breaks the metric's usual week-to-week range.`
+        ? `A move this size happens by chance ${fmtOne(oneInWeeks ?? Infinity)} at this volume${process ? ", and it breaks the metric's usual week-to-week range" : ""}.`
         : "It breaks the metric's usual week-to-week range."
       : call === "edge"
         ? tests.length
@@ -198,6 +203,8 @@ export interface TwoWeekInput {
   volume?: number
   /** Amounts and averages: coefficient of variation of one event's value. Defaults to 1. */
   cv?: number
+  /** A metric's own minimum weekly volume; the stricter of it and the generic minimum applies. */
+  min_denominator?: number
 }
 
 export const twoWeekKinds: readonly TwoWeekKind[] = ["rate", "count", "amount", "average"]
@@ -220,7 +227,11 @@ export function twoWeekTest(input: TwoWeekInput): NoiseVerdict | null {
   if (kind === "rate" && (before < 0 || before > 1 || after < 0 || after > 1)) return null
   const volume = kind === "count" ? Math.max(0, (before + after) / 2) : input.volume
   if (volume == null || !(volume > 0)) return null
-  return judge([before, after], { type: twoWeekNoise[kind], min_denominator: kind === "count" || kind === "amount" ? 10 : 30, cv: input.cv ?? 1 }, [
+  return judge([before, after], {
+    type: twoWeekNoise[kind],
+    min_denominator: Math.max(kind === "count" || kind === "amount" ? 10 : 30, input.min_denominator ?? 0),
+    cv: input.cv ?? 1,
+  }, [
     kind === "count" ? before : volume,
     kind === "count" ? after : volume,
   ])

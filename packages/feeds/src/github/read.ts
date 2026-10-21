@@ -33,13 +33,13 @@ export function moveText(v: Pick<NoiseVerdict, "before" | "after" | "relativeCha
 }
 
 const weeksText = (n: number | null) =>
-  n == null || !Number.isFinite(n) ? "almost never" : `about once every ${n.toLocaleString("en-US")} ${n === 1 ? "week" : "weeks"}`
+  n == null || !Number.isFinite(n) ? "almost never" : n <= 1 ? "most weeks" : `about once every ${n.toLocaleString("en-US")} weeks`
 
 /** Why a week got its call, one plain sentence about the repo. */
-export function whyText(v: Pick<NoiseVerdict, "call" | "clearsFloor" | "oneInWeeks" | "reason">) {
+export function whyText(v: Pick<NoiseVerdict, "call" | "clearsFloor" | "oneInWeeks" | "reason" | "process">) {
   switch (v.call) {
     case "real":
-      return `Chance alone makes a move this size ${weeksText(v.oneInWeeks)} at this count, and it breaks the repo's usual week-to-week range.`
+      return `Chance alone makes a move this size ${weeksText(v.oneInWeeks)} at this count${v.process ? ", and it breaks the repo's usual week-to-week range" : ""}.`
     case "noise":
       return v.clearsFloor === false
         ? `At this count, chance alone moves it this much ${weeksText(v.oneInWeeks)}.`

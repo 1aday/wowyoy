@@ -20,12 +20,15 @@ import { pullWorld, worldFeeds } from "@/lib/standard/world"
 
 type Params = Promise<{ slug: string }>
 
-/** Step 2 reads this week's outside events, so the page is rebuilt at most once a day. */
+/**
+ * Step 2 reads this week's outside events, so the page is rebuilt at most once a day. Pages render
+ * on first visit rather than at build, so a slow source never holds up a deploy; unknown slugs 404.
+ */
 export const revalidate = 86400
-export const dynamicParams = false
+export const dynamicParams = true
 
 export function generateStaticParams() {
-  return whyPages(publishedSpecs()).map((p) => ({ slug: p.slug }))
+  return []
 }
 
 function find(slug: string): { spec: MetricSpec; direction: WhyDirection } | null {

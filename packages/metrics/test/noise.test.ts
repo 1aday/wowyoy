@@ -141,3 +141,23 @@ describe("specs and examples", () => {
     }
   })
 })
+
+describe("edges of the two-week test", () => {
+  it("never calls a flat week real, even at 0% or 100%", () => {
+    for (const [kind, x] of [["rate", 0], ["rate", 1], ["amount", 0], ["average", 0], ["count", 40]] as const) {
+      expect(twoWeekTest({ kind, before: x, after: x, volume: 800 })!.call, `${kind} ${x}`).not.toBe("real")
+    }
+    expect(twoWeekTest({ kind: "rate", before: 0, after: 0.05, volume: 800 })!.call).toBe("real")
+  })
+
+  it("only claims the process limits when it ran them", () => {
+    const v = twoWeekTest({ kind: "rate", before: 0.041, after: 0.026, volume: 8000 })!
+    expect(v.process).toBeNull()
+    expect(v.reason).not.toMatch(/usual week-to-week range/)
+  })
+
+  it("honours a metric's own minimum volume", () => {
+    expect(twoWeekTest({ kind: "rate", before: 0.6, after: 0.4, volume: 40 })!.call).not.toBe("too-few")
+    expect(twoWeekTest({ kind: "rate", before: 0.6, after: 0.4, volume: 40, min_denominator: 100 })!.call).toBe("too-few")
+  })
+})

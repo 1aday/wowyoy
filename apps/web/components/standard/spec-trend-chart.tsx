@@ -85,7 +85,7 @@ export function SpecTrendChart({
               />
             }
           />
-          <Area dataKey="band" stroke="none" fill="var(--color-band)" fillOpacity={1} type="monotone" activeDot={false} />
+          <Area dataKey="band" stroke="none" fill="var(--color-band)" fillOpacity={1} type="linear" activeDot={false} />
           <Line dataKey="lastYear" stroke="var(--color-lastYear)" strokeWidth={2} strokeOpacity={0.5} dot={false} type="linear" activeDot={{ r: 3.5 }} />
           <Line dataKey="value" stroke="var(--color-value)" strokeWidth={2.5} dot={false} type="linear" activeDot={{ r: 4.5 }} />
           {last && (

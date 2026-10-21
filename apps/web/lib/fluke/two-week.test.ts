@@ -103,9 +103,9 @@ describe("embed pre-fill", () => {
       if (down.mode !== "two-weeks" || up.mode !== "two-weeks" || plainFill.mode !== "two-weeks") throw new Error(spec.id)
       expect(down.values.after).toBeLessThan(down.values.before)
       expect(up.values.after).toBeGreaterThan(up.values.before)
-      expect(ok(runTwoWeek(down.values)).call, spec.id).toBe("real")
-      expect(ok(runTwoWeek(up.values)).call, spec.id).toBe("real")
-      expect(ok(runTwoWeek(plainFill.values)).call, spec.id).toBe("noise")
+      expect(ok(runTwoWeek(down.values, { minVolume: down.minVolume })).call, spec.id).toBe("real")
+      expect(ok(runTwoWeek(up.values, { minVolume: up.minVolume })).call, spec.id).toBe("real")
+      expect(ok(runTwoWeek(plainFill.values, { minVolume: plainFill.minVolume })).call, spec.id).toBe("noise")
     }
   })
 

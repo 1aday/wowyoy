@@ -6,8 +6,9 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 120
 
 /**
- * Monday, 06:00 UTC: last week just closed. Refresh the archive, the new week page and its twin,
- * the week before it (its "next" link now exists), the newly open week, and the feed.
+ * Monday, 06:00 UTC: last week just closed. Refresh the new week page, its twin and og card, and the
+ * newly open week. The archive, the RSS and the week before (its "next" link) refresh on their own
+ * timers: revalidating them here would make them re-read every frozen week.
  */
 export async function GET(req: Request) {
   if (!cronAuthorized(req)) return unauthorized()
@@ -18,8 +19,7 @@ export async function GET(req: Request) {
   if (Date.now() < +closesAt(closed)) return Response.json({ ok: false, error: `${closed.id} has not closed yet` }, { status: 409 })
 
   const open = shiftWeek(closed, 1)
-  const before = shiftWeek(closed, -1)
-  const pages = ["/w", `/api/twin/w/${closed.id}`, `/w/${before.id}`, `/w/${open.id}`, "/w/rss.xml"]
+  const pages = [`/api/twin/w/${closed.id}`, `/w/${open.id}`]
   for (const p of pages) revalidatePath(p)
   // As a layout path it also refreshes the week's og card, which may hold the open-week card.
   revalidatePath(`/w/${closed.id}`, "layout")

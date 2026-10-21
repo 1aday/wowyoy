@@ -32,6 +32,13 @@ class Uncached extends Error {
 let lastRemaining: number | null = null
 
 /**
+ * Keep this many requests an hour in hand: the batch scan of watched repos stops below it, and repos
+ * outside the watched list stop being read for the first time, so a burst of cold repo pages can't
+ * starve the watched pages and every README badge.
+ */
+const RESERVE = 1000
+
+/**
  * Live reads, cached in Next's data cache for an hour per request. The cache key is the request
  * (path, accept, body), never the token: GitHub App tokens rotate hourly and differ per instance.
  */
@@ -43,6 +50,10 @@ function liveTransport(): { transport: GhTransport; auth: GitHubAuthKind } {
     if (building()) throw new GitHubError("offline", "GitHub is not read during the build")
     const read = unstable_cache(
       async () => {
+        // Only reached on a cache miss. When the hour's allowance runs low, keep it for watched repos and badges.
+        const full = req.tags?.find((t) => t.startsWith("github:"))?.slice("github:".length)
+        if (full && !isWatched(full) && lastRemaining != null && lastRemaining < RESERVE)
+          throw new GitHubError("rate-limited", "Saving the hour's GitHub allowance for watched repos")
         const res = await raw(req)
         if (res.remaining != null) lastRemaining = res.remaining
         if (res.status === 202) throw new Uncached(res)
@@ -91,8 +102,6 @@ export async function retrySoon() {
   await unstable_cache(async () => true, ["github-retry"], { revalidate: 120 })()
 }
 
-/** Keep this many requests an hour for people opening repo pages. */
-const RESERVE = 1000
 const CONCURRENCY = 6
 
 export interface WatchedRead {

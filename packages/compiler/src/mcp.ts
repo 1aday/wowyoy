@@ -80,7 +80,7 @@ export const tools: ToolDefinition[] = [
     name: "fluke",
     title: "Is a weekly move real?",
     description:
-      "Test whether a week-over-week change is a real move or ordinary noise, from two numbers (last week, this week) and the weekly volume behind them. Give a metric to use its noise model, or a kind: rate (a share, e.g. conversion; volume = trials a week), count (things that happen, e.g. orders; no volume needed), amount (money summed over orders; volume = orders a week) or average (money per order; volume = orders a week). Rates may be fractions (0.041) or percents (4.1). Returns the call (real, edge, noise or too-few), a one-line reason, the noise floor at that volume and a link to the Fluke Test with these inputs.",
+      "Test whether a week-over-week change is a real move or ordinary noise, from two numbers (last week, this week) and the weekly volume behind them. Give a metric to use its noise model, or a kind: rate (a share, e.g. conversion; volume = trials a week), count (things that happen, e.g. orders; no volume needed), amount (money summed over orders; volume = orders a week) or average (money per order; volume = orders a week). Rates may be fractions (0.041) or percents (4.1): if either number is above 1 both are read as percents; pass unit for rates under 1%. With a metric, its own minimum weekly volume applies. Returns the call (real, edge, noise or too-few), a one-line reason, the noise floor at that volume and a link to the Fluke Test with these inputs.",
     inputSchema: {
       type: "object",
       properties: {
@@ -89,6 +89,11 @@ export const tools: ToolDefinition[] = [
         before: { type: "number", description: "Last week's value." },
         after: { type: "number", description: "This week's value." },
         volume: { type: "number", exclusiveMinimum: 0, description: "Trials a week for rates; orders a week for amounts and averages." },
+        unit: {
+          type: "string",
+          enum: ["fraction", "percent"],
+          description: "Rates only: how before and after are written. Leave out to infer it (above 1 means percent).",
+        },
         cv: {
           type: "number",
           exclusiveMinimum: 0,
@@ -284,8 +289,10 @@ function fluke(args: Record<string, unknown>, specs: readonly MetricSpec[]): Too
   }
   const cv = cvArg ?? spec?.noise.cv ?? 1
 
-  // Rates may come as percents; read both as percents if either is above 1.
-  const percent = kind === "rate" && (before > 1 || after > 1)
+  // Rates may come as percents: say so with unit, or both are read as percents if either is above 1.
+  const unit = args.unit == null ? null : str(args.unit)
+  if (unit !== null && unit !== "fraction" && unit !== "percent") return fail('"unit" is "fraction" or "percent".')
+  const percent = kind === "rate" && (unit ? unit === "percent" : before > 1 || after > 1)
   if (percent) [before, after] = [before / 100, after / 100]
   if (kind === "rate" && (before < 0 || before > 1 || after < 0 || after > 1))
     return fail("Rates must be between 0 and 1, or 0 and 100 as percents.")
@@ -297,7 +304,7 @@ function fluke(args: Record<string, unknown>, specs: readonly MetricSpec[]): Too
     )
   }
 
-  const verdict: NoiseVerdict | null = twoWeekTest({ kind, before, after, volume, cv })
+  const verdict: NoiseVerdict | null = twoWeekTest({ kind, before, after, volume, cv, min_denominator: spec?.noise.min_denominator })
   if (!verdict) return fail("Those numbers can't be tested: check that they are finite and that counts are positive.")
 
   const flukeUrl = absolute(

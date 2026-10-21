@@ -111,7 +111,7 @@ function Empty({ children }: { children: React.ReactNode }) {
 function TwoWeekBody({ spec, prefill }: { spec: CardSpec; prefill: Extract<EmbedPrefill, { mode: "two-weeks" }> }) {
   const [text, setText] = React.useState<TwoWeekText>(() => toText(prefill.values))
   const { values, errors } = React.useMemo(() => fromText(text), [text])
-  const report = React.useMemo(() => (values ? runTwoWeek(values, { volumeUnit: prefill.volumeUnit }) : null), [values, prefill.volumeUnit])
+  const report = React.useMemo(() => (values ? runTwoWeek(values, { volumeUnit: prefill.volumeUnit, minVolume: prefill.minVolume }) : null), [values, prefill.volumeUnit, prefill.minVolume])
   const ok = report && !("error" in report) ? report : null
   return (
     <Layout

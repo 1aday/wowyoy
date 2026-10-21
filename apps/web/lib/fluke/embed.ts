@@ -9,7 +9,7 @@ import { formatTwoWeekValue, runTwoWeek, type TwoWeekValues } from "./two-week"
 export type EmbedSpec = Pick<MetricSpec, "id" | "name" | "kind" | "noise" | "example" | "polarity">
 
 export type EmbedPrefill =
-  | { mode: "two-weeks"; values: TwoWeekValues; volumeLabel: string; volumeUnit: string }
+  | { mode: "two-weeks"; values: TwoWeekValues; volumeLabel: string; volumeUnit: string; minVolume: number }
   /** Process metrics: the example's weekly history, in display units (rates in percent), oldest first. */
   | { mode: "history"; history: number[]; before: number; after: number }
 
@@ -73,7 +73,7 @@ export function embedPrefill(spec: EmbedSpec, direction?: WhyDirection, end?: st
     // so a fixed multiple can miss: try wider moves, then narrower ones, until the call is the one the page means.
     const want = direction ? "real" : "noise"
     const call = (v: TwoWeekValues) => {
-      const r = runTwoWeek(v)
+      const r = runTwoWeek(v, { minVolume: spec.noise.min_denominator })
       return "error" in r ? null : r.call
     }
     const start = direction ? 1.3 : 0.5
@@ -82,7 +82,7 @@ export function embedPrefill(spec: EmbedSpec, direction?: WhyDirection, end?: st
       : Array.from({ length: 30 }, (_, i) => start * 0.8 ** i)
     const values = moves.map(fill).find((v) => v.after !== v.before && call(v) === want) ?? fill(start)
     const unit = spec.noise.volume_unit
-    return { mode: "two-weeks", values, volumeLabel: sentence(unit), volumeUnit: unit }
+    return { mode: "two-weeks", values, volumeLabel: sentence(unit), volumeUnit: unit, minVolume: spec.noise.min_denominator }
   }
 
   const f = spec.kind === "rate" ? 100 : 1

@@ -4,8 +4,11 @@ import type { BandModel } from "./band-math"
 
 /** The slider's model, from the compiler's band. Server only: it reads the compiler. */
 export function bandModel(spec: MetricSpec): BandModel | null {
-  const one = bandAt(spec, 1)
-  if (!one) return null
+  // Read the 1/√volume constant at a large volume, where the binomial's half-event correction doesn't bite.
+  const ref = 1e6
+  const big = bandAt(spec, ref)
+  if (!big) return null
+  const one = { absolute: big.absolute * Math.sqrt(ref) }
   const rate = spec.kind === "rate"
   return {
     kind: spec.kind,

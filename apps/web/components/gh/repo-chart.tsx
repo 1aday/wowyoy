@@ -68,7 +68,7 @@ export function RepoChart({ view, measure, className }: { view: RepoView; measur
             />
           }
         />
-        <Area dataKey="band" type="monotone" stroke="none" fill="var(--color-band)" fillOpacity={1} activeDot={false} connectNulls={false} />
+        <Area dataKey="band" type="linear" stroke="none" fill="var(--color-band)" fillOpacity={1} activeDot={false} connectNulls={false} />
         <Line dataKey="value" type="linear" stroke="var(--color-value)" strokeWidth={2.5} dot={false} activeDot={{ r: 4.5 }} connectNulls={false} />
         {last && last.value != null && (
           <ReferenceDot

@@ -2,6 +2,7 @@ import { revalidatePath, revalidateTag } from "next/cache"
 import { paths } from "@workspace/compiler"
 import { repoTags } from "@workspace/feeds"
 import { WATCHED } from "@/lib/gh/seed"
+import { cronAuthorized, unauthorized } from "@/lib/ledger/cron"
 
 /**
  * Refresh Repo Pulse: every watched repo's page and badge, and the /gh index. Runs daily at 06:30 UTC,
@@ -11,7 +12,7 @@ import { WATCHED } from "@/lib/gh/seed"
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET
   if (!secret) return Response.json({ error: "CRON_SECRET is not set" }, { status: 503 })
-  if (req.headers.get("authorization") !== `Bearer ${secret}`) return Response.json({ error: "unauthorized" }, { status: 401 })
+  if (!cronAuthorized(req)) return unauthorized()
 
   // On the run after the weekly close, drop the cached GitHub reads too: one from before midnight misses the end of the week.
   const now = new Date()
