@@ -39,105 +39,153 @@ denominator:
 
 queries:
   hogql: |-
-    -- Bounce rate per week: sessions with one page view, no click or key action and under 10 seconds ÷ sessions with a page view.
-    SELECT week, numerator, denominator, if(denominator > 0, numerator / denominator, NULL) AS value
+    -- Bounce rate per week: sessions with one page view, no click or key action and under 10 seconds ÷ sessions with a page view. Each session counts in the week it started. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT
+      w.week AS week,
+      coalesce(s.bounced, 0) AS numerator,
+      coalesce(s.sessions, 0) AS denominator,
+      if(coalesce(s.sessions, 0) = 0, NULL, s.bounced / s.sessions) AS value
     FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
       SELECT
-        week,
-        countIf(pageviews = 1 AND actions = 0 AND seconds < 10) AS numerator,
-        count() AS denominator
+        v.week AS week,
+        countIf(v.pageviews = 1 AND v.actions = 0 AND v.milliseconds < 10000) AS bounced,
+        count() AS sessions
       FROM (
         SELECT
           $session_id AS session_id,
-          toMonday(min(timestamp)) AS week,
+          toMonday(toTimeZone(min(timestamp), 'UTC')) AS week,
           countIf(event = '$pageview') AS pageviews,
           countIf(event IN ('$autocapture', 'product_added', 'product_searched', 'checkout_started', 'signed_up', 'order_completed')) AS actions,
-          dateDiff('second', min(timestamp), max(timestamp)) AS seconds
+          dateDiff('millisecond', min(timestamp), max(timestamp)) AS milliseconds
         FROM events
-        WHERE $session_id IS NOT NULL
-          AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
-          AND timestamp < toStartOfWeek(now(), 1)
+        WHERE $session_id != ''
+          AND timestamp >= now() - toIntervalWeek(27)
+          AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
         GROUP BY session_id
         HAVING pageviews > 0
-      )
+      ) AS v
       GROUP BY week
-    )
+    ) AS s ON s.week = w.week
     ORDER BY week
   postgres: |-
-    -- Bounce rate per week: sessions with one page view, no click or key action and under 10 seconds ÷ sessions with a page view.
-    WITH visits AS (
+    -- Bounce rate per week: sessions with one page view, no click or key action and under 10 seconds ÷ sessions with a page view. Each session counts in the week it started. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    visits AS (
       SELECT
         session_id,
-        date_trunc('week', min(occurred_at))::date AS week,
+        date_trunc('week', min(occurred_at) AT TIME ZONE 'UTC')::date AS week,
         count(*) FILTER (WHERE event_name = '$pageview') AS pageviews,
-        count(*) FILTER (
-          WHERE event_name IN ('$autocapture', 'product_added', 'product_searched', 'checkout_started', 'signed_up', 'order_completed')
-        ) AS actions,
+        count(*) FILTER (WHERE event_name IN ('$autocapture', 'product_added', 'product_searched', 'checkout_started', 'signed_up', 'order_completed')) AS actions,
         extract(epoch FROM max(occurred_at) - min(occurred_at)) AS seconds
       FROM events
-      WHERE session_id IS NOT NULL
-        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
-        AND occurred_at < date_trunc('week', now())
+      WHERE session_id <> ''
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
       GROUP BY session_id
+    ),
+    weekly AS (
+      SELECT
+        week,
+        count(*) FILTER (WHERE pageviews = 1 AND actions = 0 AND seconds < 10) AS bounced,
+        count(*) AS sessions
+      FROM visits
+      WHERE pageviews > 0
+      GROUP BY week
     )
     SELECT
-      week,
-      count(*) FILTER (WHERE pageviews = 1 AND actions = 0 AND seconds < 10) AS numerator,
-      count(*) AS denominator,
-      (count(*) FILTER (WHERE pageviews = 1 AND actions = 0 AND seconds < 10))::numeric / nullif(count(*), 0) AS value
-    FROM visits
-    WHERE pageviews > 0
-    GROUP BY week
-    ORDER BY week;
+      w.week,
+      coalesce(s.bounced, 0) AS numerator,
+      coalesce(s.sessions, 0) AS denominator,
+      s.bounced::numeric / nullif(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
   bigquery: |-
-    -- Bounce rate per week: sessions with one page view, no click or key action and under 10 seconds ÷ sessions with a page view.
-    WITH visits AS (
+    -- Bounce rate per week: sessions with one page view, no click or key action and under 10 seconds ÷ sessions with a page view. Each session counts in the week it started. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    visits AS (
       SELECT
         session_id,
         DATE_TRUNC(DATE(MIN(occurred_at)), ISOWEEK) AS week,
         COUNTIF(event_name = '$pageview') AS pageviews,
         COUNTIF(event_name IN ('$autocapture', 'product_added', 'product_searched', 'checkout_started', 'signed_up', 'order_completed')) AS actions,
-        TIMESTAMP_DIFF(MAX(occurred_at), MIN(occurred_at), SECOND) AS seconds
+        TIMESTAMP_DIFF(MAX(occurred_at), MIN(occurred_at), MILLISECOND) AS milliseconds
       FROM events
-      WHERE session_id IS NOT NULL
+      WHERE session_id <> ''
         AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
         AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
       GROUP BY session_id
+    ),
+    weekly AS (
+      SELECT
+        week,
+        COUNTIF(pageviews = 1 AND actions = 0 AND milliseconds < 10000) AS bounced,
+        COUNT(*) AS sessions
+      FROM visits
+      WHERE pageviews > 0
+      GROUP BY week
     )
     SELECT
-      week,
-      COUNTIF(pageviews = 1 AND actions = 0 AND seconds < 10) AS numerator,
-      COUNT(*) AS denominator,
-      SAFE_DIVIDE(COUNTIF(pageviews = 1 AND actions = 0 AND seconds < 10), COUNT(*)) AS value
-    FROM visits
-    WHERE pageviews > 0
-    GROUP BY week
-    ORDER BY week;
+      w.week,
+      COALESCE(s.bounced, 0) AS numerator,
+      COALESCE(s.sessions, 0) AS denominator,
+      SAFE_DIVIDE(s.bounced, s.sessions) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
   snowflake: |-
-    -- Bounce rate per week: sessions with one page view, no click or key action and under 10 seconds ÷ sessions with a page view.
-    -- Assumes WEEK_START = 1 (Monday).
-    WITH visits AS (
+    -- Bounce rate per week: sessions with one page view, no click or key action and under 10 seconds ÷ sessions with a page view. Each session counts in the week it started. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    visits AS (
       SELECT
         session_id,
-        DATE_TRUNC('week', MIN(occurred_at))::date AS week,
+        DATEADD(day, 1 - DAYOFWEEKISO(MIN(occurred_at)), MIN(occurred_at)::date) AS week,
         COUNT_IF(event_name = '$pageview') AS pageviews,
         COUNT_IF(event_name IN ('$autocapture', 'product_added', 'product_searched', 'checkout_started', 'signed_up', 'order_completed')) AS actions,
-        DATEDIFF('second', MIN(occurred_at), MAX(occurred_at)) AS seconds
+        DATEDIFF('millisecond', MIN(occurred_at), MAX(occurred_at)) AS milliseconds
       FROM events
-      WHERE session_id IS NOT NULL
-        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
-        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+      WHERE session_id <> ''
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
       GROUP BY session_id
+    ),
+    weekly AS (
+      SELECT
+        week,
+        COUNT_IF(pageviews = 1 AND actions = 0 AND milliseconds < 10000) AS bounced,
+        COUNT(*) AS sessions
+      FROM visits
+      WHERE pageviews > 0
+      GROUP BY week
     )
     SELECT
-      week,
-      COUNT_IF(pageviews = 1 AND actions = 0 AND seconds < 10) AS numerator,
-      COUNT(*) AS denominator,
-      DIV0NULL(COUNT_IF(pageviews = 1 AND actions = 0 AND seconds < 10), COUNT(*)) AS value
-    FROM visits
-    WHERE pageviews > 0
-    GROUP BY week
-    ORDER BY week;
+      w.week,
+      COALESCE(s.bounced, 0) AS numerator,
+      COALESCE(s.sessions, 0) AS denominator,
+      s.bounced::float / NULLIF(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
 
 noise:
   type: binomial

@@ -46,67 +46,80 @@ numerator:
 
 queries:
   hogql: |-
-    -- SaaS quick ratio for each of the last 26 complete ISO weeks (Monday start, UTC), over the four weeks ending that Sunday: (new + expansion MRR) ÷ (churned + contraction MRR).
+    -- SaaS quick ratio per week, over the four weeks ending that Sunday: (new + expansion MRR) ÷ (churned + contraction MRR). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
     SELECT
-      toString(w.monday) AS week,
-      sum(f.gained) AS numerator,
-      sum(f.lost) AS denominator,
-      if(sum(f.lost) > 0, sum(f.gained) / sum(f.lost), NULL) AS value
+      w.week AS week,
+      coalesce(sum(f.gained), 0) AS numerator,
+      coalesce(sum(f.lost), 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
     FROM (
-      SELECT toMonday(now()) - toIntervalWeek(arrayJoin(range(1, 27))) AS monday
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
     ) AS w
-    CROSS JOIN (
+    LEFT JOIN (
       SELECT
-        toMonday(timestamp) AS monday,
-        coalesce(sumIf(toFloat(properties.mrr), event = 'subscription_started'), 0)
-          + coalesce(sumIf(toFloat(properties.mrr_delta), event = 'subscription_expanded'), 0) AS gained,
-        coalesce(sumIf(toFloat(properties.mrr), event = 'subscription_canceled'), 0)
-          + coalesce(sumIf(toFloat(properties.mrr_delta), event = 'subscription_contracted'), 0) AS lost
-      FROM events
-      WHERE event IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
-        AND timestamp >= toMonday(now()) - toIntervalWeek(29)
-        AND timestamp < toMonday(now())
-      GROUP BY monday
-    ) AS f
-    WHERE f.monday > w.monday - toIntervalWeek(4) AND f.monday <= w.monday
-    GROUP BY w.monday
-    ORDER BY w.monday
+        active_week + toIntervalWeek(arrayJoin([0, 1, 2, 3])) AS week,
+        gained,
+        lost
+      FROM (
+        SELECT
+          toMonday(toTimeZone(timestamp, 'UTC')) AS active_week,
+          coalesce(sumIf(toFloat(properties.mrr), event = 'subscription_started'), 0)
+            + coalesce(sumIf(toFloat(properties.mrr_delta), event = 'subscription_expanded'), 0) AS gained,
+          coalesce(sumIf(toFloat(properties.mrr), event = 'subscription_canceled'), 0)
+            + coalesce(sumIf(toFloat(properties.mrr_delta), event = 'subscription_contracted'), 0) AS lost
+        FROM events
+        WHERE event IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
+          AND timestamp >= now() - toIntervalWeek(30)
+          AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(29) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+        GROUP BY active_week
+      )
+    ) AS f ON f.week = w.week
+    GROUP BY w.week
+    ORDER BY week
   postgres: |-
-    -- SaaS quick ratio for each of the last 26 complete ISO weeks (Monday start, UTC), over the four weeks ending that Sunday: (new + expansion MRR) ÷ (churned + contraction MRR).
-    WITH flows AS (
+    -- SaaS quick ratio per week, over the four weeks ending that Sunday: (new + expansion MRR) ÷ (churned + contraction MRR). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    flows AS (
       SELECT
-        date_trunc('week', occurred_at)::date AS week,
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week,
         coalesce(sum(CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END) FILTER (WHERE event_name = 'subscription_started'), 0)
           + coalesce(sum(CASE WHEN properties->>'mrr_delta' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr_delta')::numeric END) FILTER (WHERE event_name = 'subscription_expanded'), 0) AS gained,
         coalesce(sum(CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END) FILTER (WHERE event_name = 'subscription_canceled'), 0)
           + coalesce(sum(CASE WHEN properties->>'mrr_delta' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr_delta')::numeric END) FILTER (WHERE event_name = 'subscription_contracted'), 0) AS lost
       FROM events
       WHERE event_name IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
-        AND occurred_at >= date_trunc('week', now()) - interval '29 weeks'
-        AND occurred_at < date_trunc('week', now())
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '29 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
       GROUP BY 1
     ),
-    weeks AS (
-      SELECT generate_series(
-        date_trunc('week', now()) - interval '26 weeks',
-        date_trunc('week', now()) - interval '1 week',
-        interval '1 week'
-      )::date AS week
+    totals AS (
+      SELECT w.week, coalesce(sum(f.gained), 0) AS gained, coalesce(sum(f.lost), 0) AS lost
+      FROM weeks AS w
+      LEFT JOIN flows AS f ON f.week BETWEEN w.week - 21 AND w.week
+      GROUP BY w.week
     )
-    SELECT
-      w.week,
-      sum(f.gained) AS numerator,
-      sum(f.lost) AS denominator,
-      sum(f.gained) / nullif(sum(f.lost), 0) AS value
-    FROM weeks AS w
-    JOIN flows AS f ON f.week > w.week - 28 AND f.week <= w.week
-    GROUP BY w.week
-    ORDER BY w.week;
+    SELECT week, gained AS numerator, lost AS denominator, gained / nullif(lost, 0) AS value
+    FROM totals
+    ORDER BY week;
   bigquery: |-
-    -- SaaS quick ratio for each of the last 26 complete ISO weeks (Monday start, UTC), over the four weeks ending that Sunday: (new + expansion MRR) ÷ (churned + contraction MRR).
-    WITH flows AS (
+    -- SaaS quick ratio per week, over the four weeks ending that Sunday: (new + expansion MRR) ÷ (churned + contraction MRR). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    flows AS (
       SELECT
-        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS monday,
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
         COALESCE(SUM(IF(event_name = 'subscription_started', SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64), NULL)), 0)
           + COALESCE(SUM(IF(event_name = 'subscription_expanded', SAFE_CAST(JSON_VALUE(properties, '$.mrr_delta') AS FLOAT64), NULL)), 0) AS gained,
         COALESCE(SUM(IF(event_name = 'subscription_canceled', SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64), NULL)), 0)
@@ -115,55 +128,46 @@ queries:
       WHERE event_name IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
         AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 29 WEEK))
         AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
-      GROUP BY monday
+      GROUP BY week
     ),
-    weeks AS (
-      SELECT week
-      FROM UNNEST(GENERATE_DATE_ARRAY(
-        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK),
-        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK),
-        INTERVAL 1 WEEK
-      )) AS week
+    totals AS (
+      SELECT w.week, COALESCE(SUM(f.gained), 0) AS gained, COALESCE(SUM(f.lost), 0) AS lost
+      FROM weeks AS w
+      LEFT JOIN flows AS f ON f.week BETWEEN DATE_SUB(w.week, INTERVAL 3 WEEK) AND w.week
+      GROUP BY w.week
     )
-    SELECT
-      w.week AS week,
-      SUM(f.gained) AS numerator,
-      SUM(f.lost) AS denominator,
-      SAFE_DIVIDE(SUM(f.gained), SUM(f.lost)) AS value
-    FROM weeks AS w
-    JOIN flows AS f
-      ON f.monday > DATE_SUB(w.week, INTERVAL 4 WEEK) AND f.monday <= w.week
-    GROUP BY w.week
-    ORDER BY w.week;
+    SELECT week, gained AS numerator, lost AS denominator, SAFE_DIVIDE(gained, lost) AS value
+    FROM totals
+    ORDER BY week;
   snowflake: |-
-    -- SaaS quick ratio for each of the last 26 complete ISO weeks (Monday start, UTC), over the four weeks ending that Sunday: (new + expansion MRR) ÷ (churned + contraction MRR). Assumes WEEK_START = 1 (Monday).
-    WITH flows AS (
+    -- SaaS quick ratio per week, over the four weeks ending that Sunday: (new + expansion MRR) ÷ (churned + contraction MRR). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    flows AS (
       SELECT
-        DATE_TRUNC('week', occurred_at)::date AS monday,
-        COALESCE(SUM(IFF(event_name = 'subscription_started', properties:mrr::float, NULL)), 0)
-          + COALESCE(SUM(IFF(event_name = 'subscription_expanded', properties:mrr_delta::float, NULL)), 0) AS gained,
-        COALESCE(SUM(IFF(event_name = 'subscription_canceled', properties:mrr::float, NULL)), 0)
-          + COALESCE(SUM(IFF(event_name = 'subscription_contracted', properties:mrr_delta::float, NULL)), 0) AS lost
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week,
+        COALESCE(SUM(IFF(event_name = 'subscription_started', TRY_TO_DOUBLE(properties:"mrr"::string), NULL)), 0)
+          + COALESCE(SUM(IFF(event_name = 'subscription_expanded', TRY_TO_DOUBLE(properties:"mrr_delta"::string), NULL)), 0) AS gained,
+        COALESCE(SUM(IFF(event_name = 'subscription_canceled', TRY_TO_DOUBLE(properties:"mrr"::string), NULL)), 0)
+          + COALESCE(SUM(IFF(event_name = 'subscription_contracted', TRY_TO_DOUBLE(properties:"mrr_delta"::string), NULL)), 0) AS lost
       FROM events
       WHERE event_name IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
-        AND occurred_at >= DATEADD(week, -29, DATE_TRUNC('week', CURRENT_DATE()))
-        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+        AND occurred_at >= DATEADD(week, -29, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
       GROUP BY 1
     ),
-    weeks AS (
-      SELECT DATEADD(week, -ROW_NUMBER() OVER (ORDER BY SEQ4()), DATE_TRUNC('week', CURRENT_DATE())) AS week
-      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    totals AS (
+      SELECT w.week, COALESCE(SUM(f.gained), 0) AS gained, COALESCE(SUM(f.lost), 0) AS lost
+      FROM weeks AS w
+      LEFT JOIN flows AS f ON f.week BETWEEN DATEADD(week, -3, w.week) AND w.week
+      GROUP BY w.week
     )
-    SELECT
-      w.week,
-      SUM(f.gained) AS numerator,
-      SUM(f.lost) AS denominator,
-      SUM(f.gained) / NULLIF(SUM(f.lost), 0) AS value
-    FROM weeks AS w
-    JOIN flows AS f
-      ON f.monday > DATEADD(week, -4, w.week) AND f.monday <= w.week
-    GROUP BY w.week
-    ORDER BY w.week;
+    SELECT week, gained AS numerator, lost AS denominator, gained / NULLIF(lost, 0) AS value
+    FROM totals
+    ORDER BY week;
 
 noise:
   type: process

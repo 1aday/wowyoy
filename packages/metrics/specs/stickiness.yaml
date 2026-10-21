@@ -28,123 +28,158 @@ numerator:
 
 queries:
   hogql: |-
-    -- Stickiness for each of the last 26 complete ISO weeks (Monday start, UTC): the average of the week's seven daily counts of distinct active people ÷ distinct active people in the 28 days ending that Sunday.
+    -- Stickiness per week: the average of the week's seven daily counts of distinct active people (days in UTC) ÷ distinct active people in the four weeks (28 days) ending that Sunday. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
     SELECT
-      toString(d.monday) AS week,
-      d.dau AS numerator,
-      m.mau AS denominator,
-      d.dau / m.mau AS value
+      w.week AS week,
+      coalesce(d.person_days, 0) / 7 AS numerator,
+      coalesce(m.people, 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
     FROM (
-      SELECT toMonday(day) AS monday, count() / 7 AS dau
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT toMonday(day) AS week, count() AS person_days
       FROM (
-        SELECT DISTINCT person_id, toDate(timestamp) AS day
+        SELECT DISTINCT person_id, toDate(toTimeZone(timestamp, 'UTC')) AS day
         FROM events
-        WHERE timestamp >= toMonday(now()) - toIntervalWeek(26)
-          AND timestamp < toMonday(now())
+        WHERE person_id IS NOT NULL
+          AND timestamp >= now() - toIntervalWeek(27)
+          AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
       )
-      GROUP BY monday
-    ) AS d
-    INNER JOIN (
-      SELECT monday, count(DISTINCT person_id) AS mau
+      GROUP BY week
+    ) AS d ON d.week = w.week
+    LEFT JOIN (
+      SELECT week, count(DISTINCT person_id) AS people
       FROM (
-        SELECT person_id, active_week + toIntervalWeek(arrayJoin([0, 1, 2, 3])) AS monday
+        SELECT person_id, active_week + toIntervalWeek(arrayJoin([0, 1, 2, 3])) AS week
         FROM (
-          SELECT DISTINCT person_id, toMonday(timestamp) AS active_week
+          SELECT DISTINCT person_id, toMonday(toTimeZone(timestamp, 'UTC')) AS active_week
           FROM events
-          WHERE timestamp >= toMonday(now()) - toIntervalWeek(29)
-            AND timestamp < toMonday(now())
+          WHERE person_id IS NOT NULL
+            AND timestamp >= now() - toIntervalWeek(30)
+            AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(29) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
         )
       )
-      GROUP BY monday
-    ) AS m ON m.monday = d.monday
-    ORDER BY d.monday
+      WHERE week BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+      GROUP BY week
+    ) AS m ON m.week = w.week
+    ORDER BY week
   postgres: |-
-    -- Stickiness for each of the last 26 complete ISO weeks (Monday start, UTC): the average of the week's seven daily counts of distinct active people ÷ distinct active people in the 28 days ending that Sunday.
-    WITH user_days AS (
-      SELECT DISTINCT user_id, date_trunc('day', occurred_at)::date AS day
+    -- Stickiness per week: the average of the week's seven daily counts of distinct active people (days in UTC) ÷ distinct active people in the four weeks (28 days) ending that Sunday. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    person_days AS (
+      SELECT DISTINCT
+        user_id,
+        (occurred_at AT TIME ZONE 'UTC')::date AS day,
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS active_week
       FROM events
       WHERE user_id IS NOT NULL
-        AND occurred_at >= date_trunc('week', now()) - interval '29 weeks'
-        AND occurred_at < date_trunc('week', now())
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '29 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
     ),
-    dau AS (
-      SELECT date_trunc('week', day)::date AS week, count(*) / 7.0 AS dau
-      FROM user_days
-      GROUP BY 1
+    daily AS (
+      SELECT active_week AS week, count(*) / 7.0 AS dau
+      FROM person_days
+      GROUP BY active_week
     ),
-    mau AS (
-      SELECT date_trunc('week', u.day)::date + 7 * k AS week, count(DISTINCT u.user_id) AS mau
-      FROM user_days AS u
-      CROSS JOIN generate_series(0, 3) AS k
-      GROUP BY 1
+    monthly AS (
+      SELECT w.week, count(DISTINCT p.user_id) AS mau
+      FROM weeks AS w
+      JOIN person_days AS p ON p.active_week BETWEEN w.week - 21 AND w.week
+      GROUP BY w.week
+    ),
+    totals AS (
+      SELECT w.week, coalesce(d.dau, 0) AS dau, coalesce(m.mau, 0) AS mau
+      FROM weeks AS w
+      LEFT JOIN daily AS d ON d.week = w.week
+      LEFT JOIN monthly AS m ON m.week = w.week
     )
-    SELECT
-      d.week,
-      d.dau AS numerator,
-      m.mau AS denominator,
-      d.dau / nullif(m.mau, 0) AS value
-    FROM dau AS d
-    JOIN mau AS m ON m.week = d.week
-    WHERE d.week >= date_trunc('week', now()) - interval '26 weeks'
-    ORDER BY d.week;
+    SELECT week, dau AS numerator, mau AS denominator, dau / nullif(mau, 0) AS value
+    FROM totals
+    ORDER BY week;
   bigquery: |-
-    -- Stickiness for each of the last 26 complete ISO weeks (Monday start, UTC): the average of the week's seven daily counts of distinct active people ÷ distinct active people in the 28 days ending that Sunday.
-    WITH user_days AS (
-      SELECT DISTINCT user_id, DATE(occurred_at) AS day
+    -- Stickiness per week: the average of the week's seven daily counts of distinct active people (days in UTC) ÷ distinct active people in the four weeks (28 days) ending that Sunday. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    person_days AS (
+      SELECT DISTINCT
+        user_id,
+        DATE(occurred_at) AS day,
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS active_week
       FROM events
       WHERE user_id IS NOT NULL
         AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 29 WEEK))
         AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
     ),
-    dau AS (
-      SELECT DATE_TRUNC(day, ISOWEEK) AS week, COUNT(*) / 7 AS dau
-      FROM user_days
-      GROUP BY week
+    daily AS (
+      SELECT active_week AS week, COUNT(*) / 7 AS dau
+      FROM person_days
+      GROUP BY active_week
     ),
-    mau AS (
-      SELECT DATE_ADD(DATE_TRUNC(u.day, ISOWEEK), INTERVAL k WEEK) AS week, COUNT(DISTINCT u.user_id) AS mau
-      FROM user_days AS u
-      CROSS JOIN UNNEST([0, 1, 2, 3]) AS k
-      GROUP BY week
+    monthly AS (
+      SELECT w.week, COUNT(DISTINCT p.user_id) AS mau
+      FROM weeks AS w
+      JOIN person_days AS p ON p.active_week BETWEEN DATE_SUB(w.week, INTERVAL 3 WEEK) AND w.week
+      GROUP BY w.week
+    ),
+    totals AS (
+      SELECT w.week, COALESCE(d.dau, 0) AS dau, COALESCE(m.mau, 0) AS mau
+      FROM weeks AS w
+      LEFT JOIN daily AS d ON d.week = w.week
+      LEFT JOIN monthly AS m ON m.week = w.week
     )
-    SELECT
-      d.week,
-      d.dau AS numerator,
-      m.mau AS denominator,
-      SAFE_DIVIDE(d.dau, m.mau) AS value
-    FROM dau AS d
-    JOIN mau AS m ON m.week = d.week
-    WHERE d.week >= DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK)
-    ORDER BY d.week;
+    SELECT week, dau AS numerator, mau AS denominator, SAFE_DIVIDE(dau, mau) AS value
+    FROM totals
+    ORDER BY week;
   snowflake: |-
-    -- Stickiness for each of the last 26 complete ISO weeks (Monday start, UTC): the average of the week's seven daily counts of distinct active people ÷ distinct active people in the 28 days ending that Sunday. Assumes WEEK_START = 1 (Monday).
-    WITH user_days AS (
-      SELECT DISTINCT user_id, occurred_at::date AS day
+    -- Stickiness per week: the average of the week's seven daily counts of distinct active people (days in UTC) ÷ distinct active people in the four weeks (28 days) ending that Sunday. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    person_days AS (
+      SELECT DISTINCT
+        user_id,
+        occurred_at::date AS day,
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS active_week
       FROM events
       WHERE user_id IS NOT NULL
-        AND occurred_at >= DATEADD(week, -29, DATE_TRUNC('week', CURRENT_DATE()))
-        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+        AND occurred_at >= DATEADD(week, -29, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
     ),
-    dau AS (
-      SELECT DATE_TRUNC('week', day) AS week, COUNT(*) / 7 AS dau
-      FROM user_days
-      GROUP BY 1
+    daily AS (
+      SELECT active_week AS week, COUNT(*) / 7.0 AS dau
+      FROM person_days
+      GROUP BY active_week
     ),
-    mau AS (
-      SELECT DATEADD(week, k.n, DATE_TRUNC('week', u.day)) AS week, COUNT(DISTINCT u.user_id) AS mau
-      FROM user_days AS u
-      CROSS JOIN (VALUES (0), (1), (2), (3)) AS k (n)
-      GROUP BY 1
+    monthly AS (
+      SELECT w.week, COUNT(DISTINCT p.user_id) AS mau
+      FROM weeks AS w
+      JOIN person_days AS p ON p.active_week BETWEEN DATEADD(week, -3, w.week) AND w.week
+      GROUP BY w.week
+    ),
+    totals AS (
+      SELECT w.week, COALESCE(d.dau, 0) AS dau, COALESCE(m.mau, 0) AS mau
+      FROM weeks AS w
+      LEFT JOIN daily AS d ON d.week = w.week
+      LEFT JOIN monthly AS m ON m.week = w.week
     )
-    SELECT
-      d.week,
-      d.dau AS numerator,
-      m.mau AS denominator,
-      d.dau / NULLIF(m.mau, 0) AS value
-    FROM dau AS d
-    JOIN mau AS m ON m.week = d.week
-    WHERE d.week >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
-    ORDER BY d.week;
+    SELECT week, dau AS numerator, mau AS denominator, dau::float / NULLIF(mau, 0) AS value
+    FROM totals
+    ORDER BY week;
 
 noise:
   type: process

@@ -49,165 +49,192 @@ denominator:
 
 queries:
   hogql: |-
-    -- ROAS per week: revenue from orders placed in sessions that arrived through a paid ad ÷ ad spend, both by the week they happened.
+    -- ROAS per week: revenue from orders placed in sessions that arrived through a paid ad (paid utm_medium or ad click id on the first page view) ÷ ad spend, each by the week it happened. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
     SELECT
-      a.week AS week,
+      w.week AS week,
       coalesce(r.revenue, 0) AS numerator,
-      a.spend AS denominator,
-      if(a.spend > 0, coalesce(r.revenue, 0) / a.spend, NULL) AS value
+      coalesce(a.spend, 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
     FROM (
-      SELECT toMonday(timestamp) AS week, sum(toFloat(properties.spend)) AS spend
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT toMonday(toTimeZone(timestamp, 'UTC')) AS week, sum(toFloat(properties.spend)) AS spend
       FROM events
       WHERE event = 'ad_spend'
-        AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
-        AND timestamp < toStartOfWeek(now(), 1)
+        AND timestamp >= now() - toIntervalWeek(27)
+        AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
       GROUP BY week
-    ) AS a
+    ) AS a ON a.week = w.week
     LEFT JOIN (
-      SELECT week, sum(revenue) AS revenue
+      SELECT toMonday(o.ts) AS week, sum(o.total) AS revenue
       FROM (
+        SELECT $session_id AS session_id, toTimeZone(timestamp, 'UTC') AS ts, toFloat(properties.total) AS total
+        FROM events
+        WHERE event = 'order_completed'
+          AND $session_id != ''
+          AND timestamp >= now() - toIntervalWeek(27)
+          AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+      ) AS o
+      INNER JOIN (
         SELECT
           $session_id AS session_id,
-          toMonday(minIf(timestamp, event = 'order_completed')) AS week,
-          argMinIf(lower(coalesce(properties.utm_medium, '')), timestamp, event = '$pageview') AS medium,
-          argMinIf(coalesce(properties.gclid, properties.gbraid, properties.wbraid, properties.msclkid, '') != '', timestamp, event = '$pageview') AS ad_click,
-          sumIf(toFloat(properties.total), event = 'order_completed') AS revenue
+          argMin(lower(coalesce(properties.utm_medium, '')), timestamp) AS medium,
+          argMin(coalesce(properties.gclid, properties.gbraid, properties.wbraid, properties.msclkid, '') <> '', timestamp) AS ad_click
         FROM events
-        WHERE event IN ('$pageview', 'order_completed')
-          AND $session_id IS NOT NULL
-          AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
-          AND timestamp < toStartOfWeek(now(), 1)
+        WHERE event = '$pageview'
+          AND $session_id != ''
+          AND timestamp >= now() - toIntervalWeek(27)
+          AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
         GROUP BY session_id
-        HAVING countIf(event = 'order_completed') > 0 AND countIf(event = '$pageview') > 0
-      )
-      WHERE (match(medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
+      ) AS e ON e.session_id = o.session_id
+      WHERE (match(e.medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR e.ad_click)
       GROUP BY week
-    ) AS r ON r.week = a.week
+    ) AS r ON r.week = w.week
     ORDER BY week
   postgres: |-
-    -- ROAS per week: revenue from orders placed in sessions that arrived through a paid ad ÷ ad spend, both by the week they happened.
-    WITH spend AS (
-      SELECT date_trunc('week', occurred_at)::date AS week, sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END) AS spend
+    -- ROAS per week: revenue from orders placed in sessions that arrived through a paid ad (paid utm_medium or ad click id on the first page view) ÷ ad spend, each by the week it happened. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    spend AS (
+      SELECT date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week, sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END) AS spend
       FROM events
       WHERE event_name = 'ad_spend'
-        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
-        AND occurred_at < date_trunc('week', now())
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
       GROUP BY 1
     ),
     entries AS (
       SELECT DISTINCT ON (session_id)
         session_id,
-        date_trunc('week', occurred_at)::date AS week,
         lower(coalesce(properties->>'utm_medium', '')) AS medium,
         coalesce(properties->>'gclid', properties->>'gbraid', properties->>'wbraid', properties->>'msclkid', '') <> '' AS ad_click
       FROM events
       WHERE event_name = '$pageview'
-        AND session_id IS NOT NULL
-        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
-        AND occurred_at < date_trunc('week', now())
+        AND session_id <> ''
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
       ORDER BY session_id, occurred_at
     ),
     paid_revenue AS (
-      SELECT date_trunc('week', o.occurred_at)::date AS week, sum(CASE WHEN o.properties->>'total' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (o.properties->>'total')::numeric END) AS revenue
+      SELECT date_trunc('week', o.occurred_at AT TIME ZONE 'UTC')::date AS week, sum(CASE WHEN o.properties->>'total' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (o.properties->>'total')::numeric END) AS revenue
       FROM events AS o
       JOIN entries AS e ON e.session_id = o.session_id
       WHERE o.event_name = 'order_completed'
-        AND o.occurred_at >= date_trunc('week', now()) - interval '26 weeks'
-        AND o.occurred_at < date_trunc('week', now())
+        AND o.occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND o.occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
         AND (e.medium ~ '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$' OR e.ad_click)
       GROUP BY 1
+    ),
+    totals AS (
+      SELECT w.week, coalesce(p.revenue, 0) AS numerator, coalesce(s.spend, 0) AS denominator
+      FROM weeks AS w
+      LEFT JOIN spend AS s ON s.week = w.week
+      LEFT JOIN paid_revenue AS p ON p.week = w.week
     )
-    SELECT
-      s.week,
-      coalesce(p.revenue, 0) AS numerator,
-      s.spend AS denominator,
-      coalesce(p.revenue, 0) / nullif(s.spend, 0) AS value
-    FROM spend AS s
-    LEFT JOIN paid_revenue AS p ON p.week = s.week
-    ORDER BY s.week;
+    SELECT week, numerator, denominator, numerator / nullif(denominator, 0) AS value
+    FROM totals
+    ORDER BY week;
   bigquery: |-
-    -- ROAS per week: revenue from orders placed in sessions that arrived through a paid ad ÷ ad spend, both by the week they happened.
-    WITH spend AS (
-      SELECT DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week, sum(CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64)) AS spend
+    -- ROAS per week: revenue from orders placed in sessions that arrived through a paid ad (paid utm_medium or ad click id on the first page view) ÷ ad spend, each by the week it happened. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    spend AS (
+      SELECT DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week, SUM(SAFE_CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64)) AS spend
       FROM events
       WHERE event_name = 'ad_spend'
         AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
         AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
-      GROUP BY 1
+      GROUP BY week
     ),
     entries AS (
       SELECT
         session_id,
-        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
-        lower(coalesce(JSON_VALUE(properties, '$.utm_medium'), '')) AS medium,
-        coalesce(JSON_VALUE(properties, '$.gclid'), JSON_VALUE(properties, '$.gbraid'), JSON_VALUE(properties, '$.wbraid'), JSON_VALUE(properties, '$.msclkid'), '') <> '' AS ad_click
+        LOWER(COALESCE(JSON_VALUE(properties, '$.utm_medium'), '')) AS medium,
+        COALESCE(JSON_VALUE(properties, '$.gclid'), JSON_VALUE(properties, '$.gbraid'), JSON_VALUE(properties, '$.wbraid'), JSON_VALUE(properties, '$.msclkid'), '') <> '' AS ad_click
       FROM events
       WHERE event_name = '$pageview'
-        AND session_id IS NOT NULL
+        AND session_id <> ''
         AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
         AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
       QUALIFY ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY occurred_at) = 1
     ),
     paid_revenue AS (
-      SELECT DATE_TRUNC(DATE(o.occurred_at), ISOWEEK) AS week, sum(CAST(JSON_VALUE(o.properties, '$.total') AS FLOAT64)) AS revenue
+      SELECT DATE_TRUNC(DATE(o.occurred_at), ISOWEEK) AS week, SUM(SAFE_CAST(JSON_VALUE(o.properties, '$.total') AS FLOAT64)) AS revenue
       FROM events AS o
       JOIN entries AS e ON e.session_id = o.session_id
       WHERE o.event_name = 'order_completed'
         AND o.occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
         AND o.occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
         AND (REGEXP_CONTAINS(e.medium, r'^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR e.ad_click)
-      GROUP BY 1
+      GROUP BY week
+    ),
+    totals AS (
+      SELECT w.week, COALESCE(p.revenue, 0) AS numerator, COALESCE(s.spend, 0) AS denominator
+      FROM weeks AS w
+      LEFT JOIN spend AS s ON s.week = w.week
+      LEFT JOIN paid_revenue AS p ON p.week = w.week
     )
-    SELECT
-      s.week,
-      coalesce(p.revenue, 0) AS numerator,
-      s.spend AS denominator,
-      SAFE_DIVIDE(COALESCE(p.revenue, 0), s.spend) AS value
-    FROM spend AS s
-    LEFT JOIN paid_revenue AS p ON p.week = s.week
-    ORDER BY s.week;
+    SELECT week, numerator, denominator, SAFE_DIVIDE(numerator, denominator) AS value
+    FROM totals
+    ORDER BY week;
   snowflake: |-
-    -- ROAS per week: revenue from orders placed in sessions that arrived through a paid ad ÷ ad spend, both by the week they happened.
-    -- Assumes WEEK_START = 1 (Monday).
-    WITH spend AS (
-      SELECT DATE_TRUNC('week', occurred_at)::date AS week, sum(properties:"spend"::float) AS spend
+    -- ROAS per week: revenue from orders placed in sessions that arrived through a paid ad (paid utm_medium or ad click id on the first page view) ÷ ad spend, each by the week it happened. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    spend AS (
+      SELECT DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week, SUM(TRY_TO_DOUBLE(properties:"spend"::string)) AS spend
       FROM events
       WHERE event_name = 'ad_spend'
-        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
-        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
       GROUP BY 1
     ),
     entries AS (
       SELECT
         session_id,
-        DATE_TRUNC('week', occurred_at)::date AS week,
-        lower(coalesce(properties:"utm_medium"::string, '')) AS medium,
-        coalesce(properties:"gclid"::string, properties:"gbraid"::string, properties:"wbraid"::string, properties:"msclkid"::string, '') <> '' AS ad_click
+        LOWER(COALESCE(properties:"utm_medium"::string, '')) AS medium,
+        COALESCE(properties:"gclid"::string, properties:"gbraid"::string, properties:"wbraid"::string, properties:"msclkid"::string, '') <> '' AS ad_click
       FROM events
       WHERE event_name = '$pageview'
-        AND session_id IS NOT NULL
-        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
-        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+        AND session_id <> ''
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
       QUALIFY ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY occurred_at) = 1
     ),
     paid_revenue AS (
-      SELECT DATE_TRUNC('week', o.occurred_at)::date AS week, sum(o.properties:"total"::float) AS revenue
+      SELECT DATEADD(day, 1 - DAYOFWEEKISO(o.occurred_at), o.occurred_at::date) AS week, SUM(TRY_TO_DOUBLE(o.properties:"total"::string)) AS revenue
       FROM events AS o
       JOIN entries AS e ON e.session_id = o.session_id
       WHERE o.event_name = 'order_completed'
-        AND o.occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
-        AND o.occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+        AND o.occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND o.occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
         AND (REGEXP_LIKE(e.medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR e.ad_click)
       GROUP BY 1
+    ),
+    totals AS (
+      SELECT w.week, COALESCE(p.revenue, 0) AS numerator, COALESCE(s.spend, 0) AS denominator
+      FROM weeks AS w
+      LEFT JOIN spend AS s ON s.week = w.week
+      LEFT JOIN paid_revenue AS p ON p.week = w.week
     )
-    SELECT
-      s.week,
-      coalesce(p.revenue, 0) AS numerator,
-      s.spend AS denominator,
-      DIV0NULL(COALESCE(p.revenue, 0), s.spend) AS value
-    FROM spend AS s
-    LEFT JOIN paid_revenue AS p ON p.week = s.week
-    ORDER BY s.week;
+    SELECT week, numerator, denominator, numerator / NULLIF(denominator, 0) AS value
+    FROM totals
+    ORDER BY week;
 
 noise:
   type: process

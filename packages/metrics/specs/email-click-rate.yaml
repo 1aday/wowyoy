@@ -38,42 +38,66 @@ denominator:
 
 queries:
   hogql: |-
-    -- Email click rate per week: distinct recipient and campaign pairs that clicked ÷ pairs delivered, each by the week it happened.
-    SELECT week, numerator, denominator, if(denominator > 0, numerator / denominator, NULL) AS value
+    -- Email click rate per week: distinct recipient and campaign pairs that clicked ÷ pairs delivered, each by the week it happened. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT
+      w.week AS week,
+      coalesce(e.clicked, 0) AS numerator,
+      coalesce(e.delivered, 0) AS denominator,
+      if(coalesce(e.delivered, 0) = 0, NULL, e.clicked / e.delivered) AS value
     FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
       SELECT
-        toMonday(timestamp) AS week,
-        uniqIf(concat(toString(person_id), ':', toString(properties.campaign_id)), event = 'email_clicked') AS numerator,
-        uniqIf(concat(toString(person_id), ':', toString(properties.campaign_id)), event = 'email_delivered') AS denominator
+        toMonday(toTimeZone(timestamp, 'UTC')) AS week,
+        uniqExactIf(concat(toString(person_id), ':', toString(properties.campaign_id)), event = 'email_clicked') AS clicked,
+        uniqExactIf(concat(toString(person_id), ':', toString(properties.campaign_id)), event = 'email_delivered') AS delivered
       FROM events
       WHERE event IN ('email_delivered', 'email_clicked')
-        AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
-        AND timestamp < toStartOfWeek(now(), 1)
+        AND timestamp >= now() - toIntervalWeek(27)
+        AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
       GROUP BY week
-    )
+    ) AS e ON e.week = w.week
     ORDER BY week
   postgres: |-
-    -- Email click rate per week: distinct recipient and campaign pairs that clicked ÷ pairs delivered, each by the week it happened.
+    -- Email click rate per week: distinct recipient and campaign pairs that clicked ÷ pairs delivered, each by the week it happened. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    emails AS (
+      SELECT
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week,
+        count(DISTINCT user_id || ':' || (properties->>'campaign_id')) FILTER (WHERE event_name = 'email_clicked') AS clicked,
+        count(DISTINCT user_id || ':' || (properties->>'campaign_id')) FILTER (WHERE event_name = 'email_delivered') AS delivered
+      FROM events
+      WHERE event_name IN ('email_delivered', 'email_clicked')
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+      GROUP BY 1
+    )
     SELECT
-      date_trunc('week', occurred_at)::date AS week,
-      count(DISTINCT user_id || ':' || (properties->>'campaign_id')) FILTER (WHERE event_name = 'email_clicked') AS numerator,
-      count(DISTINCT user_id || ':' || (properties->>'campaign_id')) FILTER (WHERE event_name = 'email_delivered') AS denominator,
-      (count(DISTINCT user_id || ':' || (properties->>'campaign_id')) FILTER (WHERE event_name = 'email_clicked'))::numeric
-        / nullif(count(DISTINCT user_id || ':' || (properties->>'campaign_id')) FILTER (WHERE event_name = 'email_delivered'), 0) AS value
-    FROM events
-    WHERE event_name IN ('email_delivered', 'email_clicked')
-      AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
-      AND occurred_at < date_trunc('week', now())
-    GROUP BY 1
-    ORDER BY 1;
+      w.week,
+      coalesce(e.clicked, 0) AS numerator,
+      coalesce(e.delivered, 0) AS denominator,
+      e.clicked::numeric / nullif(e.delivered, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN emails AS e ON e.week = w.week
+    ORDER BY w.week;
   bigquery: |-
-    -- Email click rate per week: distinct recipient and campaign pairs that clicked ÷ pairs delivered, each by the week it happened.
-    SELECT
-      week,
-      clicked AS numerator,
-      delivered AS denominator,
-      SAFE_DIVIDE(clicked, delivered) AS value
-    FROM (
+    -- Email click rate per week: distinct recipient and campaign pairs that clicked ÷ pairs delivered, each by the week it happened. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    emails AS (
       SELECT
         DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
         COUNT(DISTINCT IF(event_name = 'email_clicked', CONCAT(user_id, ':', JSON_VALUE(properties, '$.campaign_id')), NULL)) AS clicked,
@@ -84,27 +108,40 @@ queries:
         AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
       GROUP BY week
     )
-    ORDER BY week;
-  snowflake: |-
-    -- Email click rate per week: distinct recipient and campaign pairs that clicked ÷ pairs delivered, each by the week it happened.
-    -- Assumes WEEK_START = 1 (Monday).
     SELECT
-      week,
-      clicked AS numerator,
-      delivered AS denominator,
-      DIV0NULL(clicked, delivered) AS value
-    FROM (
+      w.week,
+      COALESCE(e.clicked, 0) AS numerator,
+      COALESCE(e.delivered, 0) AS denominator,
+      SAFE_DIVIDE(e.clicked, e.delivered) AS value
+    FROM weeks AS w
+    LEFT JOIN emails AS e ON e.week = w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- Email click rate per week: distinct recipient and campaign pairs that clicked ÷ pairs delivered, each by the week it happened. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    emails AS (
       SELECT
-        DATE_TRUNC('week', occurred_at)::date AS week,
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week,
         COUNT(DISTINCT IFF(event_name = 'email_clicked', user_id || ':' || properties:"campaign_id"::string, NULL)) AS clicked,
         COUNT(DISTINCT IFF(event_name = 'email_delivered', user_id || ':' || properties:"campaign_id"::string, NULL)) AS delivered
       FROM events
       WHERE event_name IN ('email_delivered', 'email_clicked')
-        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
-        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
       GROUP BY 1
     )
-    ORDER BY week;
+    SELECT
+      w.week,
+      COALESCE(e.clicked, 0) AS numerator,
+      COALESCE(e.delivered, 0) AS denominator,
+      e.clicked::float / NULLIF(e.delivered, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN emails AS e ON e.week = w.week
+    ORDER BY w.week;
 
 noise:
   type: binomial

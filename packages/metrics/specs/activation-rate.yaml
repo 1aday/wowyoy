@@ -39,40 +39,58 @@ denominator:
 
 queries:
   hogql: |-
-    -- Activation rate: of people whose first signup fell in each week, the share who reached the activation milestone within 7 days of signing up. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close.
+    -- Activation rate: of people whose first signup fell in each week, the share who reached the activation milestone within 7 days of signing up. Signup weeks 27 to 2 weeks before this one (Monday 00:00 UTC), oldest first; last week's signups are left out until their 7 days close.
+    -- HogQL: paste into a PostHog SQL insight.
     SELECT
-      toString(week_start) AS week,
-      countIf(converted) AS numerator,
-      count() AS denominator,
-      if(count() > 0, countIf(converted) / count(), NULL) AS value
+      w.week AS week,
+      coalesce(c.converted_people, 0) AS numerator,
+      coalesce(c.people, 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
     FROM (
-      SELECT
-        toMonday(s.start_at) AS week_start,
-        countIf(x.ts >= s.start_at AND x.ts < s.start_at + toIntervalDay(7)) > 0 AS converted
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(2, 28))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, countIf(converted) AS converted_people, count() AS people
       FROM (
-        SELECT person_id, min(timestamp) AS start_at
-        FROM events
-        WHERE event = 'signed_up'
-        GROUP BY person_id
-      ) AS s
-      LEFT JOIN (
-        SELECT person_id, timestamp AS ts
-        FROM events
-        WHERE event = 'activated'
-          AND timestamp >= toMonday(now()) - toIntervalWeek(27)
-      ) AS x ON x.person_id = s.person_id
-      WHERE s.start_at >= toMonday(now()) - toIntervalWeek(27)
-        AND s.start_at < toMonday(now()) - toIntervalWeek(1)
-      GROUP BY week_start, s.person_id
-    )
-    GROUP BY week_start
-    ORDER BY week_start
+        SELECT
+          toMonday(s.start_at) AS week,
+          s.person_id AS person_id,
+          countIf(x.ts >= s.start_at AND x.ts < s.start_at + toIntervalDay(7)) > 0 AS converted
+        FROM (
+          SELECT person_id, min(toTimeZone(timestamp, 'UTC')) AS start_at
+          FROM events
+          WHERE event = 'signed_up'
+            AND person_id IS NOT NULL
+          GROUP BY person_id
+        ) AS s
+        LEFT JOIN (
+          SELECT person_id, toTimeZone(timestamp, 'UTC') AS ts
+          FROM events
+          WHERE event = 'activated'
+            AND timestamp >= now() - toIntervalWeek(29)
+        ) AS x ON x.person_id = s.person_id
+        WHERE toMonday(s.start_at) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(27) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(2)
+        GROUP BY week, person_id
+      )
+      GROUP BY week
+    ) AS c ON c.week = w.week
+    ORDER BY week
   postgres: |-
-    -- Activation rate: of people whose first signup fell in each week, the share who reached the activation milestone within 7 days of signing up. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close.
-    WITH starts AS (
-      SELECT user_id, min(occurred_at) AS start_at
+    -- Activation rate: of people whose first signup fell in each week, the share who reached the activation milestone within 7 days of signing up. Signup weeks 27 to 2 weeks before this one (Monday 00:00 UTC), oldest first; last week's signups are left out until their 7 days close.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '27 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '2 weeks',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    starts AS (
+      SELECT user_id, min(occurred_at AT TIME ZONE 'UTC') AS start_at
       FROM events
       WHERE event_name = 'signed_up'
+        AND user_id IS NOT NULL
       GROUP BY user_id
     ),
     cohort AS (
@@ -80,30 +98,37 @@ queries:
         date_trunc('week', s.start_at)::date AS week,
         s.user_id,
         count(x.occurred_at) > 0 AS converted
-      FROM starts s
-      LEFT JOIN events x
+      FROM starts AS s
+      LEFT JOIN events AS x
         ON x.user_id = s.user_id
        AND x.event_name = 'activated'
-       AND x.occurred_at >= s.start_at
-       AND x.occurred_at < s.start_at + interval '7 days'
-      WHERE s.start_at >= date_trunc('week', now()) - interval '27 weeks'
-        AND s.start_at < date_trunc('week', now()) - interval '1 week'
-      GROUP BY week, s.user_id
+       AND x.occurred_at AT TIME ZONE 'UTC' >= s.start_at
+       AND x.occurred_at AT TIME ZONE 'UTC' < s.start_at + interval '7 days'
+      WHERE s.start_at >= date_trunc('week', now() AT TIME ZONE 'UTC') - interval '27 weeks'
+        AND s.start_at < date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week'
+      GROUP BY 1, 2
     )
     SELECT
-      week,
-      count(*) FILTER (WHERE converted) AS numerator,
-      count(*) AS denominator,
-      (count(*) FILTER (WHERE converted))::numeric / nullif(count(*), 0) AS value
-    FROM cohort
-    GROUP BY week
-    ORDER BY week;
+      w.week,
+      count(c.user_id) FILTER (WHERE c.converted) AS numerator,
+      count(c.user_id) AS denominator,
+      (count(c.user_id) FILTER (WHERE c.converted))::numeric / nullif(count(c.user_id), 0) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
   bigquery: |-
-    -- Activation rate: of people whose first signup fell in each week, the share who reached the activation milestone within 7 days of signing up. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close.
-    WITH starts AS (
+    -- Activation rate: of people whose first signup fell in each week, the share who reached the activation milestone within 7 days of signing up. Signup weeks 27 to 2 weeks before this one (Monday 00:00 UTC), oldest first; last week's signups are left out until their 7 days close.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 27 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 2 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    starts AS (
       SELECT user_id, MIN(occurred_at) AS start_at
       FROM events
       WHERE event_name = 'signed_up'
+        AND user_id IS NOT NULL
       GROUP BY user_id
     ),
     cohort AS (
@@ -122,24 +147,31 @@ queries:
       GROUP BY week, s.user_id
     )
     SELECT
-      week,
-      COUNTIF(converted) AS numerator,
-      COUNT(*) AS denominator,
-      SAFE_DIVIDE(COUNTIF(converted), COUNT(*)) AS value
-    FROM cohort
-    GROUP BY week
-    ORDER BY week;
+      w.week,
+      COUNTIF(c.converted) AS numerator,
+      COUNT(c.user_id) AS denominator,
+      SAFE_DIVIDE(COUNTIF(c.converted), COUNT(c.user_id)) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
   snowflake: |-
-    -- Activation rate: of people whose first signup fell in each week, the share who reached the activation milestone within 7 days of signing up. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close. Assumes WEEK_START = 1 (Monday).
-    WITH starts AS (
+    -- Activation rate: of people whose first signup fell in each week, the share who reached the activation milestone within 7 days of signing up. Signup weeks 27 to 2 weeks before this one (Monday 00:00 UTC), oldest first; last week's signups are left out until their 7 days close.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 - ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    starts AS (
       SELECT user_id, MIN(occurred_at) AS start_at
       FROM events
       WHERE event_name = 'signed_up'
+        AND user_id IS NOT NULL
       GROUP BY user_id
     ),
     cohort AS (
       SELECT
-        DATE_TRUNC('week', s.start_at)::date AS week,
+        DATEADD(day, 1 - DAYOFWEEKISO(s.start_at), s.start_at::date) AS week,
         s.user_id,
         COUNT(x.occurred_at) > 0 AS converted
       FROM starts AS s
@@ -148,18 +180,19 @@ queries:
        AND x.event_name = 'activated'
        AND x.occurred_at >= s.start_at
        AND x.occurred_at < DATEADD(day, 7, s.start_at)
-      WHERE s.start_at >= DATEADD(week, -27, DATE_TRUNC('week', CURRENT_DATE()))
-        AND s.start_at < DATEADD(week, -1, DATE_TRUNC('week', CURRENT_DATE()))
-      GROUP BY week, s.user_id
+      WHERE s.start_at >= DATEADD(week, -27, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND s.start_at < DATEADD(week, -1, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+      GROUP BY 1, 2
     )
     SELECT
-      week,
-      COUNT_IF(converted) AS numerator,
-      COUNT(*) AS denominator,
-      DIV0NULL(COUNT_IF(converted), COUNT(*)) AS value
-    FROM cohort
-    GROUP BY week
-    ORDER BY week;
+      w.week,
+      COUNT_IF(c.converted) AS numerator,
+      COUNT(c.user_id) AS denominator,
+      COUNT_IF(c.converted)::float / NULLIF(COUNT(c.user_id), 0) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
 
 noise:
   type: binomial

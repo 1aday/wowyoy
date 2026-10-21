@@ -39,99 +39,150 @@ denominator:
 
 queries:
   hogql: |-
-    -- Search conversion rate: sessions that searched, then placed a paid order ÷ sessions that searched. One row per complete week, last 26 weeks.
+    -- Search conversion rate per week: sessions that searched, then placed an order ÷ sessions that searched. Each session counts in the week of its first search. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
     SELECT
-      toMonday(searched_at) AS week,
-      countIf(ordered_at >= searched_at) AS numerator,
-      count() AS denominator,
-      if(denominator > 0, numerator / denominator, NULL) AS value
+      w.week AS week,
+      coalesce(s.converted, 0) AS numerator,
+      coalesce(s.sessions, 0) AS denominator,
+      if(coalesce(s.sessions, 0) = 0, NULL, s.converted / s.sessions) AS value
     FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
       SELECT
-        $session_id AS session_id,
-        minIf(timestamp, event = 'product_searched') AS searched_at,
-        maxIf(timestamp, event = 'order_completed') AS ordered_at
-      FROM events
-      WHERE event IN ('product_searched', 'order_completed')
-        AND $session_id != ''
-        AND timestamp >= toStartOfWeek(now(), 1) - toIntervalWeek(26)
-        AND timestamp < toStartOfWeek(now(), 1)
-      GROUP BY session_id
-      HAVING countIf(event = 'product_searched') > 0
-    )
-    GROUP BY week
+        toMonday(toTimeZone(x.searched_at, 'UTC')) AS week,
+        countIf(x.order_count > 0 AND x.ordered_at >= x.searched_at) AS converted,
+        count() AS sessions
+      FROM (
+        SELECT
+          $session_id AS session_id,
+          minIf(timestamp, event = 'product_searched') AS searched_at,
+          maxIf(timestamp, event = 'order_completed') AS ordered_at,
+          countIf(event = 'order_completed') AS order_count
+        FROM events
+        WHERE event IN ('product_searched', 'order_completed')
+          AND $session_id != ''
+          AND timestamp >= now() - toIntervalWeek(27)
+          AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+        GROUP BY session_id
+        HAVING countIf(event = 'product_searched') > 0
+      ) AS x
+      GROUP BY week
+    ) AS s ON s.week = w.week
     ORDER BY week
   postgres: |-
-    -- Search conversion rate: sessions that searched, then placed a paid order ÷ sessions that searched. One row per complete week, last 26 weeks.
-    -- Postgres. Assumes events(event_name, occurred_at, user_id, session_id, properties): one row per event, occurred_at in UTC, properties as JSON.
-    WITH searches AS (
+    -- Search conversion rate per week: sessions that searched, then placed an order ÷ sessions that searched. Each session counts in the week of its first search. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    searches AS (
       SELECT
         session_id,
         min(occurred_at) FILTER (WHERE event_name = 'product_searched') AS searched_at,
         max(occurred_at) FILTER (WHERE event_name = 'order_completed') AS ordered_at
       FROM events
       WHERE event_name IN ('product_searched', 'order_completed')
-        AND session_id IS NOT NULL
-        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
-        AND occurred_at < date_trunc('week', now())
+        AND session_id <> ''
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
       GROUP BY session_id
+    ),
+    weekly AS (
+      SELECT
+        date_trunc('week', searched_at AT TIME ZONE 'UTC')::date AS week,
+        count(*) FILTER (WHERE ordered_at >= searched_at) AS converted,
+        count(*) AS sessions
+      FROM searches
+      WHERE searched_at IS NOT NULL
+      GROUP BY 1
     )
     SELECT
-      date_trunc('week', searched_at)::date AS week,
-      count(*) FILTER (WHERE ordered_at >= searched_at) AS numerator,
-      count(*) AS denominator,
-      (count(*) FILTER (WHERE ordered_at >= searched_at))::numeric / nullif(count(*), 0) AS value
-    FROM searches
-    WHERE searched_at IS NOT NULL
-    GROUP BY 1
-    ORDER BY 1;
+      w.week,
+      coalesce(s.converted, 0) AS numerator,
+      coalesce(s.sessions, 0) AS denominator,
+      s.converted::numeric / nullif(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
   bigquery: |-
-    -- Search conversion rate: sessions that searched, then placed a paid order ÷ sessions that searched. One row per complete week, last 26 weeks.
-    -- BigQuery. Assumes events(event_name, occurred_at, user_id, session_id, properties): one row per event, occurred_at in UTC, properties as JSON.
-    WITH searches AS (
+    -- Search conversion rate per week: sessions that searched, then placed an order ÷ sessions that searched. Each session counts in the week of its first search. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    searches AS (
       SELECT
         session_id,
         MIN(IF(event_name = 'product_searched', occurred_at, NULL)) AS searched_at,
         MAX(IF(event_name = 'order_completed', occurred_at, NULL)) AS ordered_at
       FROM events
       WHERE event_name IN ('product_searched', 'order_completed')
-        AND session_id IS NOT NULL
+        AND session_id <> ''
         AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
         AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
       GROUP BY session_id
+    ),
+    weekly AS (
+      SELECT
+        DATE_TRUNC(DATE(searched_at), ISOWEEK) AS week,
+        COUNTIF(ordered_at >= searched_at) AS converted,
+        COUNT(*) AS sessions
+      FROM searches
+      WHERE searched_at IS NOT NULL
+      GROUP BY week
     )
     SELECT
-      DATE_TRUNC(DATE(searched_at), ISOWEEK) AS week,
-      COUNTIF(ordered_at >= searched_at) AS numerator,
-      COUNT(*) AS denominator,
-      SAFE_DIVIDE(COUNTIF(ordered_at >= searched_at), COUNT(*)) AS value
-    FROM searches
-    WHERE searched_at IS NOT NULL
-    GROUP BY week
-    ORDER BY week;
+      w.week,
+      COALESCE(s.converted, 0) AS numerator,
+      COALESCE(s.sessions, 0) AS denominator,
+      SAFE_DIVIDE(s.converted, s.sessions) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
   snowflake: |-
-    -- Search conversion rate: sessions that searched, then placed a paid order ÷ sessions that searched. One row per complete week, last 26 weeks.
-    -- Snowflake. Assumes WEEK_START = 1 (Monday) and events(event_name, occurred_at, user_id, session_id, properties), occurred_at in UTC.
-    WITH searches AS (
+    -- Search conversion rate per week: sessions that searched, then placed an order ÷ sessions that searched. Each session counts in the week of its first search. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    searches AS (
       SELECT
         session_id,
         MIN(IFF(event_name = 'product_searched', occurred_at, NULL)) AS searched_at,
         MAX(IFF(event_name = 'order_completed', occurred_at, NULL)) AS ordered_at
       FROM events
       WHERE event_name IN ('product_searched', 'order_completed')
-        AND session_id IS NOT NULL
-        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
-        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+        AND session_id <> ''
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
       GROUP BY session_id
+    ),
+    weekly AS (
+      SELECT
+        DATEADD(day, 1 - DAYOFWEEKISO(searched_at), searched_at::date) AS week,
+        COUNT_IF(ordered_at >= searched_at) AS converted,
+        COUNT(*) AS sessions
+      FROM searches
+      WHERE searched_at IS NOT NULL
+      GROUP BY 1
     )
     SELECT
-      DATE_TRUNC('week', searched_at)::date AS week,
-      COUNT_IF(ordered_at >= searched_at) AS numerator,
-      COUNT(*) AS denominator,
-      DIV0NULL(COUNT_IF(ordered_at >= searched_at), COUNT(*)) AS value
-    FROM searches
-    WHERE searched_at IS NOT NULL
-    GROUP BY 1
-    ORDER BY 1;
+      w.week,
+      COALESCE(s.converted, 0) AS numerator,
+      COALESCE(s.sessions, 0) AS denominator,
+      s.converted::float / NULLIF(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
 
 noise:
   type: binomial

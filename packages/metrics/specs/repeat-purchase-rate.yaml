@@ -38,132 +38,155 @@ denominator:
 
 queries:
   hogql: |-
-    -- Repeat purchase rate: customers with 2+ orders in the 52 weeks ending each week ÷ customers with any order in them, for each of the last 26 complete weeks.
+    -- Repeat purchase rate: customers with 2 or more distinct orders in the 52 weeks ending each week (Monday 00:00 UTC) ÷ customers with any order in them, for each of the last 26 complete weeks, oldest first. A customer is the order's customer_id, or its person_id when that is missing.
+    -- HogQL: paste into a PostHog SQL insight.
     SELECT
-      toString(week_start) AS week,
-      countIf(orders >= 2) AS numerator,
-      count() AS denominator,
-      if(count() > 0, countIf(orders >= 2) / count(), NULL) AS value
+      w.week AS week,
+      coalesce(a.repeaters, 0) AS numerator,
+      coalesce(a.customers, 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
     FROM (
-      SELECT w.week_start AS week_start, o.customer_id AS customer_id, uniqExact(o.order_id) AS orders
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, countIf(orders >= 2) AS repeaters, count() AS customers
       FROM (
-        SELECT arrayJoin(arrayMap(i -> toMonday(now()) - toIntervalWeek(i), range(1, 27))) AS week_start
-      ) AS w
-      CROSS JOIN (
-        SELECT
-          coalesce(properties.customer_id, toString(person_id)) AS customer_id,
-          properties.order_id AS order_id,
-          timestamp AS ts
-        FROM events
-        WHERE event = 'order_completed'
-          AND timestamp >= toMonday(now()) - toIntervalWeek(77)
-      ) AS o
-      WHERE o.ts >= w.week_start - toIntervalWeek(51)
-        AND o.ts < w.week_start + toIntervalWeek(1)
-      GROUP BY week_start, customer_id
-    )
-    GROUP BY week_start
-    ORDER BY week_start
+        SELECT s.week AS week, o.customer_id AS customer_id, uniqExact(o.order_id) AS orders
+        FROM (
+          SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+        ) AS s
+        CROSS JOIN (
+          SELECT
+            coalesce(properties.customer_id, toString(person_id)) AS customer_id,
+            properties.order_id AS order_id,
+            toMonday(toTimeZone(timestamp, 'UTC')) AS order_week
+          FROM events
+          WHERE event = 'order_completed'
+            AND timestamp >= now() - toIntervalWeek(78)
+            AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(77) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+        ) AS o
+        WHERE o.order_week BETWEEN s.week - toIntervalWeek(51) AND s.week
+          AND o.customer_id IS NOT NULL
+        GROUP BY week, customer_id
+      )
+      GROUP BY week
+    ) AS a ON a.week = w.week
+    ORDER BY week
   postgres: |-
-    -- Repeat purchase rate: customers with 2+ orders in the 52 weeks ending each week ÷ customers with any order in them, for each of the last 26 complete weeks.
+    -- Repeat purchase rate: customers with 2 or more distinct orders in the 52 weeks ending each week (Monday 00:00 UTC) ÷ customers with any order in them, for each of the last 26 complete weeks, oldest first. A customer is the order's customer_id, or its user_id when that is missing.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
     WITH weeks AS (
-      SELECT generate_series(
-        date_trunc('week', now()) - interval '26 weeks',
-        date_trunc('week', now()) - interval '1 week',
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
         interval '1 week'
-      ) AS week
+      ) AS g(week)
     ),
-    paid_orders AS (
+    orders AS (
       SELECT
         coalesce(properties->>'customer_id', user_id) AS customer_id,
         properties->>'order_id' AS order_id,
-        occurred_at
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week
       FROM events
       WHERE event_name = 'order_completed'
-        AND occurred_at >= date_trunc('week', now()) - interval '77 weeks'
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '77 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
     ),
     per_customer AS (
       SELECT w.week, o.customer_id, count(DISTINCT o.order_id) AS orders
-      FROM weeks w
-      JOIN paid_orders o
-        ON o.occurred_at >= w.week - interval '51 weeks'
-       AND o.occurred_at < w.week + interval '1 week'
+      FROM weeks AS w
+      JOIN orders AS o ON o.week BETWEEN w.week - 357 AND w.week
+      WHERE o.customer_id IS NOT NULL
       GROUP BY w.week, o.customer_id
+    ),
+    weekly AS (
+      SELECT week, count(*) FILTER (WHERE orders >= 2) AS repeaters, count(*) AS customers
+      FROM per_customer
+      GROUP BY week
     )
     SELECT
-      week::date AS week,
-      count(*) FILTER (WHERE orders >= 2) AS numerator,
-      count(*) AS denominator,
-      (count(*) FILTER (WHERE orders >= 2))::numeric / nullif(count(*), 0) AS value
-    FROM per_customer
-    GROUP BY week
-    ORDER BY week;
+      w.week,
+      coalesce(a.repeaters, 0) AS numerator,
+      coalesce(a.customers, 0) AS denominator,
+      a.repeaters::numeric / nullif(a.customers, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS a ON a.week = w.week
+    ORDER BY w.week;
   bigquery: |-
-    -- Repeat purchase rate: customers with 2+ orders in the 52 weeks ending each week ÷ customers with any order in them, for each of the last 26 complete weeks.
+    -- Repeat purchase rate: customers with 2 or more distinct orders in the 52 weeks ending each week (Monday 00:00 UTC) ÷ customers with any order in them, for each of the last 26 complete weeks, oldest first. A customer is the order's customer_id, or its user_id when that is missing.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
     WITH weeks AS (
       SELECT week
-      FROM UNNEST(GENERATE_DATE_ARRAY(
-        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK),
-        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK),
-        INTERVAL 1 WEEK
-      )) AS week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
     ),
-    paid_orders AS (
+    orders AS (
       SELECT
         COALESCE(JSON_VALUE(properties, '$.customer_id'), user_id) AS customer_id,
         JSON_VALUE(properties, '$.order_id') AS order_id,
-        occurred_at
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week
       FROM events
       WHERE event_name = 'order_completed'
         AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 77 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
     ),
     per_customer AS (
       SELECT w.week, o.customer_id, COUNT(DISTINCT o.order_id) AS orders
       FROM weeks AS w
-      JOIN paid_orders AS o
-        ON o.occurred_at >= TIMESTAMP(DATE_SUB(w.week, INTERVAL 51 WEEK))
-       AND o.occurred_at < TIMESTAMP(DATE_ADD(w.week, INTERVAL 1 WEEK))
+      JOIN orders AS o ON o.week BETWEEN DATE_SUB(w.week, INTERVAL 51 WEEK) AND w.week
+      WHERE o.customer_id IS NOT NULL
       GROUP BY w.week, o.customer_id
+    ),
+    weekly AS (
+      SELECT week, COUNTIF(orders >= 2) AS repeaters, COUNT(*) AS customers
+      FROM per_customer
+      GROUP BY week
     )
     SELECT
-      week,
-      COUNTIF(orders >= 2) AS numerator,
-      COUNT(*) AS denominator,
-      SAFE_DIVIDE(COUNTIF(orders >= 2), COUNT(*)) AS value
-    FROM per_customer
-    GROUP BY week
-    ORDER BY week;
+      w.week,
+      COALESCE(a.repeaters, 0) AS numerator,
+      COALESCE(a.customers, 0) AS denominator,
+      SAFE_DIVIDE(a.repeaters, a.customers) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS a ON a.week = w.week
+    ORDER BY w.week;
   snowflake: |-
-    -- Repeat purchase rate: customers with 2+ orders in the 52 weeks ending each week ÷ customers with any order in them, for each of the last 26 complete weeks. Assumes WEEK_START = 1 (Monday).
+    -- Repeat purchase rate: customers with 2 or more distinct orders in the 52 weeks ending each week (Monday 00:00 UTC) ÷ customers with any order in them, for each of the last 26 complete weeks, oldest first. A customer is the order's customer_id, or its user_id when that is missing.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
     WITH weeks AS (
-      SELECT DATEADD(week, -ROW_NUMBER() OVER (ORDER BY SEQ4()), DATE_TRUNC('week', CURRENT_DATE())) AS week
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
       FROM TABLE(GENERATOR(ROWCOUNT => 26))
     ),
-    paid_orders AS (
+    orders AS (
       SELECT
-        COALESCE(properties:customer_id::string, user_id) AS customer_id,
-        properties:order_id::string AS order_id,
-        occurred_at
+        COALESCE(properties:"customer_id"::string, user_id) AS customer_id,
+        properties:"order_id"::string AS order_id,
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week
       FROM events
       WHERE event_name = 'order_completed'
-        AND occurred_at >= DATEADD(week, -77, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at >= DATEADD(week, -77, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
     ),
     per_customer AS (
       SELECT w.week, o.customer_id, COUNT(DISTINCT o.order_id) AS orders
       FROM weeks AS w
-      JOIN paid_orders AS o
-        ON o.occurred_at >= DATEADD(week, -51, w.week)
-       AND o.occurred_at < DATEADD(week, 1, w.week)
+      JOIN orders AS o ON o.week BETWEEN DATEADD(week, -51, w.week) AND w.week
+      WHERE o.customer_id IS NOT NULL
       GROUP BY w.week, o.customer_id
+    ),
+    weekly AS (
+      SELECT week, COUNT_IF(orders >= 2) AS repeaters, COUNT(*) AS customers
+      FROM per_customer
+      GROUP BY week
     )
     SELECT
-      week,
-      COUNT_IF(orders >= 2) AS numerator,
-      COUNT(*) AS denominator,
-      DIV0NULL(COUNT_IF(orders >= 2), COUNT(*)) AS value
-    FROM per_customer
-    GROUP BY week
-    ORDER BY week;
+      w.week,
+      COALESCE(a.repeaters, 0) AS numerator,
+      COALESCE(a.customers, 0) AS denominator,
+      a.repeaters::float / NULLIF(a.customers, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS a ON a.week = w.week
+    ORDER BY w.week;
 
 noise:
   type: process
