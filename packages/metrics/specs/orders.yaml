@@ -115,6 +115,6 @@ prose:
     - Test orders, draft orders and $0 replacement orders inflate the count. Flag them at the source rather than filtering in every query.
     - Subscription renewals and marketplace orders follow their own calendars; mixed in with site orders, a renewal date looks like a sales spike.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

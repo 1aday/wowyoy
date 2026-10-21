@@ -228,6 +228,6 @@ prose:
     - Media spend alone gives a flattering number. Sales salaries, agency fees and tools belong in the spend for a fully loaded payback.
     - New MRR here is every subscription whose first paid period started this week, as in the new MRR spec. If your billing sells add-ons as separate subscriptions, an existing customer's add-on counts too; filter to each customer's first subscription for a strict per-customer payback.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

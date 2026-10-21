@@ -128,6 +128,6 @@ prose:
     - Channel splits need the session's landing source on every event, including the order; otherwise orders land in an unattributed bucket and every channel looks worse.
     - Comparing Black Friday week with the week before mixes intent. Compare with last year's Black Friday week instead.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

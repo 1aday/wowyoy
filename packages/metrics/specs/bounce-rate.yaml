@@ -272,6 +272,6 @@ prose:
     - Without a page-leave event or click tracking, the 10-second rule can't fire and every one-page visit counts as a bounce, so the rate reads high.
     - A single-page blog post or a store-locator page that answers the question bounces by design. Read bounce by landing page, not as one number.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

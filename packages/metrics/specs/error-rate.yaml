@@ -116,6 +116,6 @@ prose:
     - Browser extensions, third-party scripts and bots throw errors you can't fix. Filter them, or the rate moves with things outside the product.
     - Exceptions without the session id used by other events never reach the numerator. Check that both carry the same $session_id.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

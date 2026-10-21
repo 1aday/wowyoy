@@ -257,6 +257,6 @@ prose:
     - When one platform's spend sync fails, contribution margin jumps by that platform's spend. Check that every channel reported spend before celebrating.
     - Some teams stop before marketing and call that contribution margin. This spec takes ad spend out because that is the number that says whether growth pays.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

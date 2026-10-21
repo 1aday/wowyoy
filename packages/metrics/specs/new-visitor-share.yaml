@@ -108,6 +108,6 @@ prose:
     - The first-visit test needs the full history. A query limited to recent months calls everyone seen before that window new.
     - Changing the domain, the analytics project or the cookie name resets everyone to new for months.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

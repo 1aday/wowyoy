@@ -338,6 +338,6 @@ prose:
     - A customer who leaves and returns within the year counts at what it pays now, capped. Don't count its return as new business in this cohort.
     - Failed-payment lapses pull GRR down as much as cancellations. Split them, because the fix is in billing, not the product.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

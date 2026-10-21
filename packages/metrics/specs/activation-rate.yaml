@@ -279,6 +279,6 @@ prose:
     - Activations this week ÷ signups this week mixes cohorts and can swing wildly after a big signup week. This spec follows each signup cohort instead.
     - In team products an invited teammate who never sets anything up is not a failed activation of the account. Track activation per account as well as per person.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

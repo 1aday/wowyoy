@@ -120,6 +120,6 @@ prose:
     - Including tax and shipping makes AOV move with tax rules, destinations and carrier prices. Keep both out.
     - A promotion that lowers AOV can still raise revenue. Judge AOV with orders beside it, never alone.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

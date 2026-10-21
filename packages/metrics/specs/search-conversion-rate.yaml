@@ -265,6 +265,6 @@ prose:
     - This spec credits search only when the order follows in the same session. A shopper who searches today and buys tomorrow counts as a search that didn't convert.
     - Zero-result searches are the fastest thing to check. A catalogue, synonym or search app change shows up there on the day it ships, often before orders tell you.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

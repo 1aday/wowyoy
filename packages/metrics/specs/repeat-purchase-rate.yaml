@@ -258,6 +258,6 @@ prose:
     - One buyer split across several ids, through guest checkout or a new email, counts as two one-time customers and drags the rate down. Match on the store's customer id.
     - A weekly move is often the week leaving the window rather than this week's behaviour. Look at what happened 52 weeks ago before looking for a cause today.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

@@ -285,6 +285,6 @@ prose:
     - Referral spam sends fake visits with a made-up referrer. It never orders, so check orders from a new referrer before thanking anyone.
     - Social networks and search engines are excluded here and counted in their own channels. Tools group the long tail differently, so referral totals rarely match GA4.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

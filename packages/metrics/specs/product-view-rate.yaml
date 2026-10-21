@@ -112,6 +112,6 @@ prose:
     - Bot and crawler sessions land in the denominator only, so a bot wave reads as a fall in browsing. Split sessions by browser and country before acting.
     - Landing pages with their own buy button skip the product page, so the rate falls while sales hold. Fire product_viewed on those pages or read add-to-cart over all sessions instead.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

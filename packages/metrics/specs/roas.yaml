@@ -322,6 +322,6 @@ prose:
     - High ROAS can mean too little spend. Retargeting and branded search show the best returns because they reach people who would have bought anyway.
     - Orders must carry the browser's session id for this query to match them to a visit. Server-side orders without it count as unpaid.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

@@ -261,6 +261,6 @@ prose:
     - Counting every first event as a new person includes bots and returning people whose old id wasn't recognised. Fix identity before reading retention.
     - A low-intent campaign lowers the cohort's retention with no change in the product. Split by source before blaming onboarding.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

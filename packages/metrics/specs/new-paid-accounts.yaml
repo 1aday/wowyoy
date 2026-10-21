@@ -115,6 +115,6 @@ prose:
     - First is judged from the subscription history the analytics project holds. A customer who paid before tracking began and returns now counts as new, so backfill past subscriptions from billing when tracking starts.
     - Count accounts, not users. When several teammates can buy for one workspace, identify the account as the paying person or group, or one purchase counts twice.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

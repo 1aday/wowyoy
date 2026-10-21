@@ -195,6 +195,6 @@ prose:
     - Duplicate customer records inflate the base. Count the store's customer id, not browsers or emails typed differently.
     - Counting everyone who ever bought includes people who will never buy again and can only grow. An active base must be able to shrink.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

@@ -419,6 +419,6 @@ prose:
     - Spend booked in the wrong week, from monthly invoices or a failed sync, makes one cohort look free and the next ruinous. Check daily spend by channel before reading a jump.
     - Only cohorts whose 365 days have closed are reported, so this lags by a year. Steer today's acquisition with new customer CAC and second order rate.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

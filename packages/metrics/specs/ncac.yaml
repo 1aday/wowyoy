@@ -131,6 +131,6 @@ prose:
     - First orders need one customer identity across guest and account checkouts. Matching by email misses people who buy again with a different address and makes them new twice.
     - Spend in one week buys customers over the next several. Weekly nCAC swings when budgets change fast; read a four-week view before cutting a channel.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

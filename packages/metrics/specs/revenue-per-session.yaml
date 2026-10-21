@@ -124,6 +124,6 @@ prose:
     - Bot sessions lower it without any change in shoppers. When it drops with revenue flat, check sessions by browser and country.
     - This spec uses order revenue before refunds so it matches what the sessions produced. Subtracting refunds makes it move with returns from earlier weeks.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

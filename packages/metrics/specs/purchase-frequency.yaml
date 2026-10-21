@@ -256,6 +256,6 @@ prose:
     - Frequency over 90 days and over 365 days are different numbers. This spec uses 52 weeks and every comparison must too.
     - A handful of wholesale or reseller accounts with dozens of orders each can lift the average. Exclude them or report them separately.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

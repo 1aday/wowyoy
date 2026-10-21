@@ -117,6 +117,6 @@ prose:
     - Ad blockers and consent banners hide part of every week's visits from browser tracking, and the hidden share changes when the banner or a browser changes, not when traffic does.
     - Bot traffic rarely looks like bots in the total. Split by country, browser and landing page before trusting a jump.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

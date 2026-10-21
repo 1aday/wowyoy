@@ -329,6 +329,6 @@ prose:
     - Moving to a free plan is churn here, because the customer stopped paying. Report it apart from cancellations if free plans are common.
     - Counting subscriptions instead of customers inflates churn every time someone changes plan by canceling one subscription and starting another.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

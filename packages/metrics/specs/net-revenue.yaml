@@ -136,6 +136,6 @@ prose:
     - A few very large orders can move a small store's week by 10% or more. Check the order count before the total.
     - Revenue in several currencies needs a constant exchange rate across the weeks being compared, or currency moves look like sales.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

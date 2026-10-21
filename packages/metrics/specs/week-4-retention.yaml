@@ -261,6 +261,6 @@ prose:
     - Any event counts as active, so a push notification received in week 4 can count as retained. Count only events a person chooses to send.
     - A strong acquisition month can lower the rate by adding casual users while the number of people retained rises. Read the retained count beside the rate.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

@@ -117,6 +117,6 @@ prose:
     - It is a share of order totals before refunds, which can't be split by first or repeat order in the week they are issued. A sale week with heavy returns overstates it.
     - Orders without the first-order flag are left out of both sides. If many lack it, fix the tracking before reading the share.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

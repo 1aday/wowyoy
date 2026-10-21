@@ -298,6 +298,6 @@ prose:
     - Server-side order events need the browser's session id passed through checkout, or orders can't be matched to the visit that brought them.
     - Google Ads auto-tagged clicks carry a gclid and no UTM tags. This query counts the click id; a tag-only rule drops those sessions from the denominator.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

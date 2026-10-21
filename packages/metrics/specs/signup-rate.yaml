@@ -113,6 +113,6 @@ prose:
     - Consent banners and ad blockers hide visitors but not server-side signups, which inflates the rate. A banner change can move it a point overnight.
     - Bot traffic inflates the denominator and drags the rate down with no change in real demand. Filter known bots before reading a drop.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

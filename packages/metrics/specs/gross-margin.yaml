@@ -109,6 +109,6 @@ prose:
     - This spec matches each order's revenue to its own cost and leaves refunds out, because a refund event carries no cost. Read refund rate beside it.
     - Shipping, packaging and payment fees aren't cost of goods. Including them mixes gross margin with contribution margin and breaks comparisons with industry figures.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

@@ -120,6 +120,6 @@ prose:
     - Return rate is often quoted as orders or units returned ÷ orders or units sold. This spec is by value, so a week of partial refunds or high-priced returns moves the two apart.
     - Chargebacks run through a separate flow in most processors and appear here only if they are recorded as refunds.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

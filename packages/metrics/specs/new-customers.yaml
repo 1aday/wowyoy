@@ -121,6 +121,6 @@ prose:
     - A store migration, a new checkout app or a customer import can reset order history and turn returning buyers into new ones overnight; total orders stay flat while this jumps.
     - Sale weeks fill this number with discount buyers who rarely come back. Compare Black Friday with last year's Black Friday, and judge the cohort later by its second order rate.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

@@ -126,6 +126,6 @@ prose:
     - Welcome codes tie code usage to the new-customer mix, so a week with more first orders shows more codes without any change in promotions.
     - Browser coupon extensions try every code they know at checkout, so a code shared once can spread to a large share of orders within days. Watch the top code's share, not only the total.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

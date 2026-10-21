@@ -106,6 +106,6 @@ prose:
     - In a warehouse, count the anonymous id for visitors who never log in. Counting only user_id drops most of a store's traffic.
     - Merging anonymous and identified people, as PostHog does on login, can lower past weeks' counts after the fact. Freeze last week's number when you report it.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

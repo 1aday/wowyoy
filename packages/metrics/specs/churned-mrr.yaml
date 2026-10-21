@@ -119,6 +119,6 @@ prose:
     - A customer who leaves and comes back within the month nets to zero in monthly reports but shows as churn, then new business, in weekly ones.
     - In B2B, a few accounts can be most of a week's churned MRR. Read the list before the total.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

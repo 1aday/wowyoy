@@ -107,6 +107,6 @@ prose:
     - The count grows with the customer base. A rising count can hide a falling repeat rate in a growing store, so read repeat purchase rate next to it.
     - Subscription renewals placed automatically are repeat orders too. Report them separately when they are a large share, or a billing-date cluster looks like loyalty.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

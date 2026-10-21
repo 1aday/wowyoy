@@ -122,6 +122,6 @@ prose:
     - Counting add events instead of sessions rewards quantity buttons; three taps on plus are one shopper. This spec counts sessions.
     - Adding to cart is cheap intent. A rise that checkout starts don't follow is usually a promotion, a tracking change or price comparison, not better product pages.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

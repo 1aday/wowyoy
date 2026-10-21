@@ -233,6 +233,6 @@ prose:
     - The classification is by first page view. A visitor who clicks an ad, leaves and returns later from a bookmark is paid once and direct the second time.
     - Tags are case sensitive in most tools. CPC, Cpc and cpc split one channel three ways unless the query lowercases them, as this one does.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

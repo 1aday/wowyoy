@@ -117,6 +117,6 @@ prose:
     - Counting checkout starts instead of sessions double counts shoppers who go back to edit the cart and start again. This spec counts sessions on both sides.
     - A rise in add-to-cart rate often lowers this rate with no harm done. Read the two together and judge them by orders.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

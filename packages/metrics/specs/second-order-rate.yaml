@@ -322,6 +322,6 @@ prose:
     - A duplicate order event a few minutes after the first is not a second order. This spec requires a different order id.
     - Ninety days suits most consumer goods; for products bought once or twice a year, a 180- or 365-day window is the fair one, stated on the chart.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

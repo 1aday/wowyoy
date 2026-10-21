@@ -242,6 +242,6 @@ prose:
     - Identity changes that split one person into two ids turn regulars into new users, and merges turn new users into resurrected ones.
     - Win-back campaigns raise resurrections for a week. Judge them on how many of those people are still active a month later.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

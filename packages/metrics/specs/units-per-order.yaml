@@ -118,6 +118,6 @@ prose:
     - Basket size means units in some reports and order value in others. This page uses units; AOV is the value.
     - An average hides the shape. A move from 1.8 to 1.9 usually means fewer one-item orders, not bigger baskets everywhere; check the share of one-item orders.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

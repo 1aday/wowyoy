@@ -242,6 +242,6 @@ prose:
     - Visits from ChatGPT, Perplexity and other AI assistants arrive as referrals, not search, even when they answer what used to be a search. Read them in referral sessions.
     - Search engines don't pass the keyword, so this number can't tell branded from unbranded searches. Use Search Console for that split, and expect its clicks never to match sessions exactly, because consent banners, ad blockers and slow pages lose some visits.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

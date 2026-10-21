@@ -360,6 +360,6 @@ prose:
     - Refunds belong to the order they reverse. Taking refunds off by refund date instead of by order moves value between cohorts.
     - Holiday cohorts are larger and often worth less per customer. Compare a cohort with the same week last year.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

@@ -226,6 +226,6 @@ prose:
     - Clicks are counted in the week they happen, so a Sunday send's clicks fall partly into the next week. Compare weeks with similar send schedules.
     - Click-to-open rate is a different number. Apple Mail Privacy Protection inflates opens, so it falls for reasons that have nothing to do with the email.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

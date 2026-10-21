@@ -221,6 +221,6 @@ prose:
     - Bots and uptime checks inflate web DAU. Filter known crawlers and internal accounts before reading a spike.
     - UTC days split an evening in two for people far from Greenwich. Pick one time zone for daily counts and keep it.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

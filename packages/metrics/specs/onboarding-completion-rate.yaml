@@ -266,6 +266,6 @@ prose:
     - People who press skip must not fire onboarding_completed, or the rate measures patience, not setup.
     - Only cohorts whose 7 days have closed are reported, so the latest point is the signups of two weeks ago.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

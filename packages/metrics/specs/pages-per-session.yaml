@@ -113,6 +113,6 @@ prose:
     - The average hides a long tail. A few bots or heavy browsers viewing hundreds of pages can lift it; check the median when it jumps.
     - Comparing with GA4 views per session needs the same unit. GA4 counts screen views from apps too and divides by all sessions, not sessions with a page view.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

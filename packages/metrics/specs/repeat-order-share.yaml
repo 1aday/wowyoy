@@ -114,6 +114,6 @@ prose:
     - Orders without the first-order flag are left out of both sides. If many orders lack it, fix the tracking first, because the share of a subset can drift on its own.
     - This is a share of orders this week, not repeat purchase rate, which is a share of customers over a year. The two are often quoted under the same name.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1

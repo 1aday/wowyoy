@@ -222,6 +222,6 @@ prose:
     - Record payment events from the processor's webhooks, not the browser. Browser events miss redirect methods such as PayPal and Klarna and duplicate on reloads.
     - Processors disagree on what a failure is; a 3-D Secure challenge the shopper abandons is a failure in some and nothing in others. Changing processors moves the rate with no change in approvals.
 
-reviewed_by: null
-reviewed_at: null
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
 version: 1
