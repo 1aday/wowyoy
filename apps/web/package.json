@@ -13,6 +13,8 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@workspace/compiler": "workspace:*",
+    "@workspace/feeds": "workspace:*",
     "@workspace/metrics": "workspace:*",
     "@workspace/sources": "workspace:*",
     "@workspace/ui": "workspace:*",

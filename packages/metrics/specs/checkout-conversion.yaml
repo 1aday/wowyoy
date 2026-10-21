@@ -1,0 +1,127 @@
+id: checkout-conversion
+name: Checkout conversion
+aliases:
+  - Checkout completion rate
+  - Checkout conversion rate
+  - Checkout success rate
+family: conversion
+catalog_id: checkout_completion_rate
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of started checkouts that become a paid order in the same week.
+  formula: Paid orders ÷ checkouts started
+
+events:
+  - name: checkout_started
+    description: The first checkout step rendered, before shipping or payment details.
+    also_called: [begin_checkout, Checkout Started, checkout_initiated]
+    properties:
+      - name: checkout_id
+        description: One id per checkout attempt, so reloads don't count twice.
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+      - name: total
+        description: Order value after discounts, before tax and shipping.
+
+numerator:
+  label: Sessions with a paid order
+  aggregate: unique_sessions
+  event: order_completed
+denominator:
+  label: Sessions that started checkout
+  aggregate: unique_sessions
+  event: checkout_started
+
+noise:
+  type: binomial
+  min_denominator: 100
+  volume_unit: checkouts started a week
+  typical: 0.62
+
+example:
+  business: store
+  level: 0.63
+  volume: 9400
+  trend: 0.02
+
+drivers:
+  - id: payment-failures
+    label: Payment failures
+    metric: payment-success-rate
+    feed: stripe
+    dropped:
+      check: Did payment success fall, and is it one gateway, card brand or wallet?
+      yes: Declines or errors rise for one processor or method while the others hold.
+    spiked:
+      check: Did a payment problem from the week before just clear?
+      yes: Payment success returns to its usual level and conversion recovers with it.
+  - id: device-split
+    label: Mobile vs desktop
+    breakdown: $device_type
+    dropped:
+      check: Is the drop on one device type only?
+      yes: Mobile falls several points while desktop is flat, which points at a release or layout bug.
+    spiked:
+      check: Is the rise on one device type only?
+      yes: One device jumps after a release; confirm it isn't a tracking change before crediting it.
+  - id: shipping-and-fees
+    label: Shipping cost and delivery dates
+    dropped:
+      check: Did shipping prices, thresholds or delivery promises change this week?
+      yes: Drop-off concentrates on the shipping step, starting the day the change shipped.
+    spiked:
+      check: Did a free-shipping threshold or faster delivery promise go live?
+      yes: Fewer exits at the shipping step from the day it launched.
+  - id: discount-codes
+    label: Discount codes
+    metric: promo-code-usage-rate
+    dropped:
+      check: Did a popular code expire, or did a coupon site start listing codes that fail?
+      yes: More sessions enter a code field and leave after an invalid-code message.
+    spiked:
+      check: Is a sale or a leaked code pushing people through?
+      yes: Code usage jumps and order value per order falls.
+  - id: traffic-mix
+    label: Who reached checkout
+    metric: checkout-start-rate
+    breakdown: $utm_source
+    dropped:
+      check: Did more low-intent visitors reach checkout, for example from a new campaign?
+      yes: Checkout starts rise from one source whose completion is far below the rest.
+    spiked:
+      check: Did fewer but more committed visitors reach checkout?
+      yes: Checkout starts fall while completion rises; orders barely move.
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Did an event, consent banner or tag manager change stop orders being recorded?
+      yes: Orders in the payment processor hold steady while recorded orders fall.
+    spiked:
+      check: Is a duplicate order event or a missing checkout event inflating the rate?
+      yes: Orders recorded exceed orders in the processor, or checkout starts drop to near zero on one platform.
+
+diagnose_order: [tracking, payment-failures, device-split, shipping-and-fees, discount-codes, traffic-mix]
+
+related: [checkout-start-rate, payment-success-rate, conversion-rate, cart-abandonment-rate, add-to-cart-rate]
+
+prose:
+  why_it_matters: >-
+    Checkout is the last step a store controls, so a change here is rarely about demand and
+    almost always about something the team shipped, a partner that broke, or a price the
+    shopper saw late. A one-point drop on a store that starts 10,000 checkouts a week is
+    about 100 lost orders, every week, until someone finds it.
+  pitfalls:
+    - Counting the thank-you page instead of a server-side order event double counts reloads and misses orders paid by redirect methods.
+    - Mixing checkout attempts and sessions in one ratio. Pick one unit for both sides; this spec uses sessions.
+    - Reading a week-over-week move without the volume. Below about 1,000 checkouts a week, a two-point swing is often chance.
+    - Comparing Black Friday week with the week before. Intent is different; compare with last year's Black Friday week instead.
+
+reviewed_by: null
+reviewed_at: null
+version: 1
