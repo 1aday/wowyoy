@@ -116,9 +116,9 @@ prose:
   why_it_matters: >-
     MER is the one efficiency number no ad platform can inflate: total revenue over total
     spend, with no attribution model in between. Platform ROAS can say every channel is
-    profitable while MER falls; when they disagree, MER is right about the business. A store at
-    a MER of 4.3 with a 60% gross margin makes $2.58 of gross margin per ad dollar, or $1.58
-    after paying for the ad, before any other cost.
+    profitable while MER falls; when they disagree, MER is right about the business. At
+    Northwind's MER of 4.3 and 58% gross margin, each ad dollar comes with about $2.50 of gross
+    profit, or about $1.50 after paying for the ad, before any other cost.
   pitfalls:
     - MER credits ads with revenue they didn't cause, such as repeat customers, email and word of mouth. A store with a loyal base can show a high MER while new-customer acquisition loses money; read nCAC next to it.
     - Revenue and spend both follow the calendar, but not in step. Budgets often rise before a sale and revenue lands after it, so compare weeks with the same week last year, not the week before.

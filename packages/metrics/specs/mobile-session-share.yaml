@@ -4,7 +4,6 @@ aliases:
   - Mobile traffic share
   - Mobile share of traffic
   - Mobile traffic percentage
-  - Mobile sessions
 family: traffic
 kind: rate
 polarity: up-is-good
@@ -24,6 +23,10 @@ events:
         description: Set by the analytics SDK; ties the page view to a visit.
       - name: utm_source
         description: The campaign source from the landing URL (google, facebook, tiktok).
+      - name: utm_medium
+        description: The campaign medium from the landing URL (cpc, email, sms).
+      - name: $browser
+        description: The browser or in-app webview, parsed from the user agent.
 
 numerator:
   label: Mobile sessions
@@ -46,9 +49,9 @@ noise:
   reference_volumes: [1000, 5000, 25000, 100000]
 
 example:
-  business: app
-  level: 0.78
-  volume: 150000
+  business: store
+  level: 0.68
+  volume: 600000
   trend: 0.02
 
 drivers:
@@ -105,15 +108,16 @@ related: [sessions, mobile-conversion-rate, conversion-rate, bounce-rate, paid-s
 
 prose:
   why_it_matters: >-
-    Phones bring most store visits but convert at about half the desktop rate, so the device
-    mix moves store conversion with no change to the site. When mobile share rises from 70% to
-    75%, a store converting 1.8% on mobile and 3.6% on desktop loses about 0.09 points of
-    conversion from the mix alone. Check this before blaming checkout.
+    Phones bring most store visits but convert below desktop, so the device mix moves store
+    conversion with no change to the site. At Northwind, phones convert at 1.7% and desktop and
+    tablets at about 2.8%, so a rise in mobile share from 68% to 73% lowers overall conversion by
+    about 0.055 points, roughly 330 orders a week on 600,000 sessions, from the mix alone. Check
+    this before blaming checkout.
   pitfalls:
-    - Tablets are not mobile here. Tools that fold tablets into mobile read 3 to 8 points higher.
-    - Device type comes from the user agent. Browser changes such as reduced user-agent strings and in-app webviews can move sessions between devices without anyone changing what they use.
+    - Tablets are not mobile here. Tools that fold tablets into mobile read higher by the tablet share, so check which definition a comparison uses.
+    - Device type comes from the user agent. iPads on Safari report a Mac user agent and count as desktop, and in-app webviews can be misread, so sessions can move between devices without anyone changing what they use.
     - The share can rise because desktop fell. Read it with mobile and desktop session counts side by side.
-    - Bots usually announce a desktop user agent, so a bot wave lowers mobile share. Rule that out before reading a falling share as a change in shoppers.
+    - Many bots and crawlers announce a desktop user agent, so a bot wave lowers mobile share. Rule that out before reading a falling share as a change in shoppers.
 
 reviewed_by: null
 reviewed_at: null

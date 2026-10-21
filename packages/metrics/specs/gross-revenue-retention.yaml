@@ -327,7 +327,7 @@ prose:
   why_it_matters: >-
     Gross revenue retention is the floor under net retention: what last year's customers still
     pay if no one expands. It cannot pass 100%, which makes it the cleanest read of churn and
-    downgrades, and the number investors use to judge product fit. A SaaS at 88% has to replace
+    downgrades, and one of the first retention numbers investors ask for. A SaaS at 88% has to replace
     12% of last year's revenue before any growth counts.
   pitfalls:
     - Cap each customer at its starting MRR before summing. Letting one customer's expansion offset another's downgrade is NRR, not GRR.

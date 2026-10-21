@@ -56,7 +56,7 @@ noise:
 
 example:
   business: store
-  level: 0.0204
+  level: 0.017
   volume: 408000
   trend: 0.04
   season: 1
@@ -113,10 +113,11 @@ related: [conversion-rate, mobile-session-share, checkout-conversion, payment-su
 
 prose:
   why_it_matters: >-
-    Phones bring about two thirds of store sessions but convert well below desktop; at
-    Northwind, 1.9% against 2.9%. Mobile is where a store loses the most orders to small things,
-    such as a hidden button, a slow page or a payment sheet that doesn't open. Closing a fifth
-    of the gap on 408,000 mobile sessions a week is about 800 orders.
+    Phones bring most store sessions but convert below desktop; at Northwind they bring about two
+    thirds of sessions and convert at 1.7%, against about 2.8% on desktop and tablets. Mobile is
+    where small things lose orders, such as a hidden button, a slow page or a payment sheet that
+    doesn't open. Closing a fifth of the gap on 408,000 mobile sessions a week is about 900 more
+    sessions ending in an order.
   pitfalls:
     - Orders sent from the server carry no device type, so mobile conversion reads near zero. Copy the device type and session id from the browser onto the order event.
     - Tablets convert closer to desktop than to phones. This spec leaves them out; including them reads higher and isn't comparable.

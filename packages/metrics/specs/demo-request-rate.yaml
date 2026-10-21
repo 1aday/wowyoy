@@ -9,8 +9,8 @@ kind: rate
 polarity: up-is-good
 
 definition:
-  one_line: The share of this week's new visitors who requested a demo or a sales call.
-  formula: People who requested a demo ÷ people whose first ever visit was this week
+  one_line: People who requested a demo or a sales call this week, as a share of this week's new visitors.
+  formula: People who requested a demo this week ÷ people whose first ever visit was this week
 
 events:
   - name: $pageview
@@ -107,9 +107,9 @@ related: [signup-rate, new-paid-accounts, unique-visitors, trial-starts, signups
 prose:
   why_it_matters: >-
     For a sales-led product, a demo request is the signup: the first moment a visitor becomes a lead
-    with a name. It usually runs between 0.2% and 1% of visitors, so the weekly count is small and
-    noisy; at Copperline's 55,000 new visitors a week, a move of a quarter of the rate either way is
-    still chance.
+    with a name. Requests are rare next to visits, so the weekly count is small and noisy: Copperline
+    gets about 140 a week from 55,000 new visitors, a rate of 0.25%, and a move of up to a quarter of
+    the rate either way can still be chance.
   pitfalls:
     - Spam bots fill demo forms. Count requests that pass validation or reach the CRM, or one bad week doubles the rate.
     - A request is not a qualified meeting. Track the share that books and attends before celebrating a rise.

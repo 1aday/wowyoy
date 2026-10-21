@@ -211,8 +211,8 @@ drivers:
       check: Did the invite event stop firing for one invite path, such as share links or bulk invites?
       yes: Invites from one path fall to zero while accepted invites in the database hold.
     spiked:
-      check: Is the event firing on opening the invite dialog, or once per address in a bulk upload counted as several people?
-      yes: Invites recorded far exceed invitations stored, or the rise comes from dialog opens with no addresses.
+      check: Is the event firing when the invite dialog opens, before anyone is invited?
+      yes: Recorded inviters far exceed people with an invitation stored, and many of their events carry no invitee.
   - id: invite-flow
     label: Invite prompt
     breakdown: $device_type
@@ -258,8 +258,8 @@ related: [activation-rate, signups, onboarding-completion-rate, week-1-retention
 prose:
   why_it_matters: >-
     In a team product the first invite is the moment a trial becomes something more than one person
-    relies on, and it drives the viral loop: every new user who invites others brings signups nobody
-    paid for. Team tools often count an early invite as part of activation. At Copperline about 16%
+    relies on, and it drives the viral loop: every accepted invite brings a signup nobody paid
+    for. Team tools often count an early invite as part of activation. At Copperline about 16%
     of new signups invite someone in their first week.
   pitfalls:
     - Count people who invite, not invites sent. An admin inviting forty colleagues from a spreadsheet is one inviter.
