@@ -4,8 +4,8 @@ import { repoTags } from "@workspace/feeds"
 import { WATCHED } from "@/lib/gh/seed"
 
 /**
- * Refresh Repo Pulse: every watched repo's page and badge, and the /gh index. Runs hourly and right
- * after the weekly close (Monday 06:30 UTC), so a closed week is judged on complete data.
+ * Refresh Repo Pulse: every watched repo's page and badge, and the /gh index. Runs daily at 06:30 UTC,
+ * so on Monday it lands right after the weekly close and a closed week is judged on complete data.
  * Pages regenerate on their next visit, not all at once.
  */
 export async function GET(req: Request) {
