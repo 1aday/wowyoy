@@ -123,8 +123,11 @@ export function exampleSeries(
         break
       }
       case "compound": {
+        // Lognormal with the compound sum's relative spread, so small weeks stay positive and skew right.
         const total = level * growth * sv * d * sr
-        value = Math.max(0, total * (1 + Math.sqrt((1 + cv * cv) / vol) * r.normal()))
+        const rel = Math.sqrt((1 + cv * cv) / vol)
+        const s2 = Math.log(1 + rel * rel)
+        value = total * Math.exp(Math.sqrt(s2) * r.normal() - s2 / 2)
         break
       }
       case "mean": {

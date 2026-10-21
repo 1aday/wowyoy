@@ -182,8 +182,7 @@ queries:
     ORDER BY week;
 
 noise:
-  type: mean
-  cv: 1.3
+  type: process
   min_denominator: 50
   volume_unit: paying accounts
   typical: 126
