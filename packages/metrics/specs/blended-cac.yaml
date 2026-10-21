@@ -1,0 +1,133 @@
+id: blended-cac
+name: Blended customer acquisition cost
+aliases:
+  - CAC
+  - Customer acquisition cost
+  - Blended CAC
+  - Cost to acquire a customer
+family: acquisition
+kind: currency
+polarity: down-is-good
+
+definition:
+  one_line: Acquisition spend in the week divided by every new paying customer won that week, whether they came from ads or not.
+  formula: Acquisition spend ÷ customers whose first paid subscription started this week
+
+events:
+  - name: ad_spend
+    description: One row per channel per day of acquisition cost. Ad platforms sync their media spend; other costs can be added as their own channel.
+    also_called: [Ad Spend, ad_performance, campaign_daily_stats]
+    properties:
+      - name: spend
+        description: Amount spent that day, in the reporting currency.
+      - name: channel
+        description: The platform or cost line (google, linkedin, meta, sales, agency).
+  - name: subscription_started
+    description: A subscription's first paid period began, after any free trial.
+    also_called: [Subscription Started, subscription_activated, invoice.paid (first)]
+    properties:
+      - name: subscription_id
+        description: The billing system's subscription id.
+      - name: mrr
+        description: Monthly amount of the new subscription, after discounts, before tax.
+      - name: plan
+        description: The plan the customer started on.
+
+numerator:
+  label: Acquisition spend
+  aggregate: sum
+  event: ad_spend
+  property: spend
+denominator:
+  label: New paying customers
+  aggregate: first_time_users
+  event: subscription_started
+
+noise:
+  type: process
+  min_denominator: 10
+  volume_unit: new paying customers a week
+  typical: 1000
+
+example:
+  business: saas
+  level: 920
+  volume: 29
+  trend: 0.1
+
+drivers:
+  - id: data
+    label: Spend and billing data
+    dropped:
+      check: Is a channel's spend missing, or are migrated or duplicate subscriptions counting as new customers?
+      yes: Spend shows gaps for one channel, or new customers jump on one day with no matching signups.
+    spiked:
+      check: Is spend synced twice, or did a billing change stop new subscriptions being recorded?
+      yes: One channel's spend doubles for a day, or new subscriptions in the billing system exceed those recorded.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Did a quarter-end or a promotion bring forward deals that were already in the pipeline?
+      yes: New customers jump in the last week of a quarter or a promotion while spend holds.
+    spiked:
+      check: Is this a holiday week, when buyers are away but campaigns keep spending?
+      yes: New customers fall in holiday weeks and the same weeks last year show it.
+  - id: new-customers
+    label: New paying customers
+    metric: new-paid-accounts
+    dropped:
+      check: Did more customers start paying at steady spend?
+      yes: New paid accounts rise by about as much as CAC falls.
+    spiked:
+      check: Did fewer customers start paying at steady spend?
+      yes: New paid accounts fall by about as much as CAC rises; look at the trial and signup steps next.
+  - id: spend
+    label: Acquisition spend
+    metric: ad-spend
+    feed: ad-platforms
+    dropped:
+      check: Did spend fall while new customers held?
+      yes: Spend falls on channels that were not producing customers this week.
+    spiked:
+      check: Did a new channel, a budget increase or a conference add cost before it adds customers?
+      yes: Spend rises on one channel or line; customers from it, if any, arrive weeks later.
+  - id: trial-conversion
+    label: Trial conversion
+    metric: trial-conversion-rate
+    dropped:
+      check: Did a larger share of trials turn into paying customers?
+      yes: Trial conversion rises while trial starts hold.
+    spiked:
+      check: Did fewer trials convert, from an onboarding, pricing or payment change?
+      yes: Trial conversion falls while trial starts hold.
+  - id: signups
+    label: Signups
+    metric: signups
+    dropped:
+      check: Did signups rise a few weeks ago, and are those cohorts paying now?
+      yes: A signup rise four to eight weeks back lines up with this week's new customers.
+    spiked:
+      check: Did signups fall a few weeks ago, so fewer trials are converting now?
+      yes: A signup drop four to eight weeks back lines up with this week's fall in new customers.
+
+diagnose_order: [data, calendar, new-customers, spend, trial-conversion, signups]
+
+related: [ncac, cac-payback, ltv-to-cac, ad-spend, new-paid-accounts, new-mrr]
+
+prose:
+  why_it_matters: >-
+    CAC is what a new customer costs, and with the revenue they bring it decides how fast the
+    business can grow on its own cash. Blended CAC divides all acquisition spend by all new
+    customers, so it can't be flattered by an attribution model. At Copperline's $920 per customer,
+    about $100 a month of new MRR per customer and an 80% gross margin, the spend takes about 11.5
+    months to earn back.
+  pitfalls:
+    - Fully loaded CAC also includes sales and marketing salaries, agency fees and tools. Synced ad spend alone is media CAC, which in a sales-led business can be a small part of the full cost; add the other costs as their own channel to blend them in.
+    - Spend and customers don't land in the same week. A B2B sale often takes weeks or months from first click, so weekly CAC swings; read the trailing 13 weeks for planning and the weekly number for direction.
+    - Blended CAC improves when organic signups grow, even if every paid channel got worse. Read paid CAC by channel before raising budgets.
+    - Count customers, not subscriptions. A customer adding a second workspace is expansion, not a new customer.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

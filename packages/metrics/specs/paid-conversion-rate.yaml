@@ -1,0 +1,303 @@
+id: paid-conversion-rate
+name: Paid conversion rate
+aliases:
+  - Paid traffic conversion rate
+  - Ad conversion rate
+  - Paid session conversion rate
+family: acquisition
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of visits that arrived through a paid ad and placed an order in the same visit.
+  formula: Paid-ad sessions with an order ÷ paid-ad sessions
+
+events:
+  - name: $pageview
+    description: One page load or client-side route change; the session's first page view decides whether it came from an ad.
+    also_called: [page_view, Page Viewed, page]
+    properties:
+      - name: utm_medium
+        description: The campaign medium from the landing URL. Paid when it contains "cp", starts with "paid", or is ppc, retargeting, display or banner.
+      - name: utm_source
+        description: The platform that sent the click (google, facebook, tiktok).
+      - name: gclid
+        description: Google Ads click id from auto-tagging. Also gbraid, wbraid, and msclkid for Microsoft Ads.
+  - name: order_completed
+    description: A paid order confirmed by the server, carrying the session id of the visit it was placed in.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: $session_id
+        description: The visit the order was placed in, passed from the browser to the server event.
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+
+numerator:
+  label: Paid sessions with an order
+  aggregate: unique_sessions
+  event: order_completed
+denominator:
+  label: Paid sessions
+  aggregate: unique_sessions
+  event: $pageview
+  where:
+    - property: utm_medium
+      op: in
+      value: [cpc, ppc, cpm, paid, paid_search, paid_social, paidsocial, display, retargeting]
+
+queries:
+  hogql: |-
+    -- Paid conversion rate per week: sessions that arrived through a paid ad (paid utm_medium or ad click id on the first page view) and placed an order ÷ sessions that arrived through a paid ad. Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT
+      w.week AS week,
+      coalesce(s.converted, 0) AS numerator,
+      coalesce(s.sessions, 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, countIf(orders > 0) AS converted, count() AS sessions
+      FROM (
+        SELECT
+          $session_id AS session_id,
+          toMonday(toTimeZone(minIf(timestamp, event = '$pageview'), 'UTC')) AS week,
+          argMinIf(lower(coalesce(properties.utm_medium, '')), timestamp, event = '$pageview') AS medium,
+          argMinIf(coalesce(properties.gclid, properties.gbraid, properties.wbraid, properties.msclkid, '') <> '', timestamp, event = '$pageview') AS ad_click,
+          countIf(event = 'order_completed') AS orders
+        FROM events
+        WHERE event IN ('$pageview', 'order_completed')
+          AND $session_id != ''
+          AND timestamp >= now() - toIntervalWeek(27)
+          AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+        GROUP BY session_id
+        HAVING countIf(event = '$pageview') > 0
+      )
+      WHERE (match(medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
+      GROUP BY week
+    ) AS s ON s.week = w.week
+    ORDER BY week
+  postgres: |-
+    -- Paid conversion rate per week: sessions that arrived through a paid ad (paid utm_medium or ad click id on the first page view) and placed an order ÷ sessions that arrived through a paid ad. Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    entries AS (
+      SELECT DISTINCT ON (session_id)
+        session_id,
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week,
+        lower(coalesce(properties->>'utm_medium', '')) AS medium,
+        coalesce(properties->>'gclid', properties->>'gbraid', properties->>'wbraid', properties->>'msclkid', '') <> '' AS ad_click
+      FROM events
+      WHERE event_name = '$pageview'
+        AND session_id <> ''
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+      ORDER BY session_id, occurred_at
+    ),
+    ordered AS (
+      SELECT DISTINCT session_id
+      FROM events
+      WHERE event_name = 'order_completed'
+        AND session_id <> ''
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+    ),
+    weekly AS (
+      SELECT e.week, count(o.session_id) AS converted, count(*) AS sessions
+      FROM entries AS e
+      LEFT JOIN ordered AS o ON o.session_id = e.session_id
+      WHERE (e.medium ~ '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$' OR e.ad_click)
+      GROUP BY e.week
+    )
+    SELECT
+      w.week,
+      coalesce(s.converted, 0) AS numerator,
+      coalesce(s.sessions, 0) AS denominator,
+      s.converted::numeric / nullif(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
+  bigquery: |-
+    -- Paid conversion rate per week: sessions that arrived through a paid ad (paid utm_medium or ad click id on the first page view) and placed an order ÷ sessions that arrived through a paid ad. Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    entries AS (
+      SELECT
+        session_id,
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
+        LOWER(COALESCE(JSON_VALUE(properties, '$.utm_medium'), '')) AS medium,
+        COALESCE(JSON_VALUE(properties, '$.gclid'), JSON_VALUE(properties, '$.gbraid'), JSON_VALUE(properties, '$.wbraid'), JSON_VALUE(properties, '$.msclkid'), '') <> '' AS ad_click
+      FROM events
+      WHERE event_name = '$pageview'
+        AND session_id <> ''
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY occurred_at) = 1
+    ),
+    ordered AS (
+      SELECT DISTINCT session_id
+      FROM events
+      WHERE event_name = 'order_completed'
+        AND session_id <> ''
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+    ),
+    weekly AS (
+      SELECT e.week, COUNT(o.session_id) AS converted, COUNT(*) AS sessions
+      FROM entries AS e
+      LEFT JOIN ordered AS o ON o.session_id = e.session_id
+      WHERE (REGEXP_CONTAINS(e.medium, r'^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR e.ad_click)
+      GROUP BY e.week
+    )
+    SELECT
+      w.week,
+      COALESCE(s.converted, 0) AS numerator,
+      COALESCE(s.sessions, 0) AS denominator,
+      SAFE_DIVIDE(s.converted, s.sessions) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- Paid conversion rate per week: sessions that arrived through a paid ad (paid utm_medium or ad click id on the first page view) and placed an order ÷ sessions that arrived through a paid ad. Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    entries AS (
+      SELECT
+        session_id,
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week,
+        LOWER(COALESCE(properties:"utm_medium"::string, '')) AS medium,
+        COALESCE(properties:"gclid"::string, properties:"gbraid"::string, properties:"wbraid"::string, properties:"msclkid"::string, '') <> '' AS ad_click
+      FROM events
+      WHERE event_name = '$pageview'
+        AND session_id <> ''
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY occurred_at) = 1
+    ),
+    ordered AS (
+      SELECT DISTINCT session_id
+      FROM events
+      WHERE event_name = 'order_completed'
+        AND session_id <> ''
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+    ),
+    weekly AS (
+      SELECT e.week, COUNT(o.session_id) AS converted, COUNT(*) AS sessions
+      FROM entries AS e
+      LEFT JOIN ordered AS o ON o.session_id = e.session_id
+      WHERE (REGEXP_LIKE(e.medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR e.ad_click)
+      GROUP BY e.week
+    )
+    SELECT
+      w.week,
+      COALESCE(s.converted, 0) AS numerator,
+      COALESCE(s.sessions, 0) AS denominator,
+      s.converted::float / NULLIF(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
+
+noise:
+  type: binomial
+  min_denominator: 300
+  volume_unit: paid sessions a week
+  typical: 0.02
+  reference_volumes: [1000, 5000, 25000, 100000]
+
+example:
+  business: store
+  level: 0.021
+  volume: 180000
+  trend: 0
+
+drivers:
+  - id: tracking
+    label: Tracking and attribution
+    dropped:
+      check: Did orders stop carrying the browser's session id, or did a redirect strip tags from the landing URL?
+      yes: Total orders hold while orders matched to paid sessions fall, from the day of a checkout or redirect change.
+    spiked:
+      check: Did paid sessions lose tags, shrinking the denominator, or are orders recorded twice?
+      yes: Paid sessions fall with no fall in ad clicks, or recorded orders exceed the store admin's.
+  - id: landing
+    label: Landing pages and site health
+    feed: cloudflare
+    dropped:
+      check: Did a landing page break, slow down, sell out or stop matching its ad?
+      yes: Bounce from paid traffic rises on one landing path or device from a dated change.
+    spiked:
+      check: Did a faster or better-matched landing page go live, or did last week's outage end?
+      yes: The rise starts on the day of the page change on the campaigns that use it.
+  - id: calendar
+    label: Calendar and offers
+    feed: shopping
+    dropped:
+      check: Did a sale or holiday end, so the same ads now reach people with less reason to buy?
+      yes: The same weeks last year show the same fall after the event.
+    spiked:
+      check: Is a sale, holiday or new offer turning the same clicks into more orders?
+      yes: The same week last year shows the same rise, and promo code use is up.
+  - id: audience
+    label: Who the ads reached
+    metric: paid-sessions
+    breakdown: utm_source
+    dropped:
+      check: Did spend shift to prospecting, a new platform or broad audiences that convert lower?
+      yes: Each source holds its own rate but a low-converting one grew its share of paid sessions.
+    spiked:
+      check: Did spend shift to retargeting or branded search, which convert far higher?
+      yes: Each source holds its own rate but a high-converting one grew its share.
+  - id: checkout
+    label: Checkout and payment
+    metric: checkout-conversion
+    feed: stripe
+    dropped:
+      check: Did checkout or payment break for everyone, not only paid visitors?
+      yes: Checkout conversion falls across all channels in the same days.
+    spiked:
+      check: Did a checkout or payment fix lift every channel?
+      yes: Checkout conversion rises across all channels from the day of the fix.
+  - id: device
+    label: Mobile conversion
+    metric: mobile-conversion-rate
+    dropped:
+      check: Did mobile conversion fall, where most paid social traffic lands?
+      yes: Mobile conversion falls while desktop holds.
+    spiked:
+      check: Did a mobile fix or a faster mobile page lift conversion?
+      yes: Mobile conversion rises while desktop holds.
+
+diagnose_order: [tracking, landing, calendar, audience, checkout, device]
+
+related: [conversion-rate, paid-sessions, roas, ncac, cpc, checkout-conversion]
+
+prose:
+  why_it_matters: >-
+    This is the step between a paid click and an order, and the one the store, not the ad
+    platform, controls. With cost per click fixed by the auction, it sets what a paid order
+    costs: at Northwind's $1.25 a click, or about $1.67 per paid session once lost clicks are counted,
+    2.1% conversion is about $79 of media per order, and 1.7% is about $98.
+  pitfalls:
+    - Same-visit attribution misses buyers who click an ad and come back later to buy, often a large share of ad-driven orders, so this rate reads lower than the platforms' own, which credit orders days after the click.
+    - Prospecting and retargeting often convert several times apart. A move in the blended rate is usually a mix change; split by source and campaign first.
+    - Server-side order events need the browser's session id passed through checkout, or orders can't be matched to the visit that brought them.
+    - Google Ads auto-tagged clicks carry a gclid and no UTM tags. This query counts the click id; a tag-only rule drops those sessions from the denominator.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

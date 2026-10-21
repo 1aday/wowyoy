@@ -14,6 +14,8 @@ import { Prompt } from "@workspace/ui/brand/prompt"
 import { cn } from "@workspace/ui/lib/utils"
 import { Field } from "@/components/field"
 import { Segmented } from "@/components/segmented"
+import { toText, twoWeekPresets, type TwoWeekText, type TwoWeekValues } from "@/lib/fluke/two-week"
+import { TwoWeekTest } from "./two-week-test"
 
 export const presets = [
   {
@@ -45,9 +47,48 @@ export const presets = [
 const INK = "var(--chart-1)"
 const axis = { tickLine: false, axisLine: false, tickMargin: 8 } as const
 
-export function FlukeTest({ initial }: { initial?: { name: string; text: string } }) {
+type Mode = "history" | "two-weeks"
+
+/** The Fluke Test: a weekly series judged by its own swing, or two weeks judged against the sampling floor. */
+export function FlukeTest({ initial, initialTwoWeek }: { initial?: { name: string; text: string }; initialTwoWeek?: TwoWeekValues }) {
+  const [mode, setMode] = React.useState<Mode>(initialTwoWeek ? "two-weeks" : "history")
   const [name, setName] = React.useState(initial?.name ?? presets[0].name)
   const [text, setText] = React.useState(initial?.text ?? presets[0].text)
+  const [two, setTwo] = React.useState<TwoWeekText>(() => toText(initialTwoWeek ?? twoWeekPresets.rate))
+  return (
+    <>
+      <div className="mt-10 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="label-mono">Test with</span>
+        <Segmented
+          label="Test with"
+          value={mode}
+          options={[
+            { value: "history", label: "History" },
+            { value: "two-weeks", label: "Two weeks" },
+          ]}
+          onChange={setMode}
+        />
+      </div>
+      {mode === "history" ? (
+        <HistoryTest name={name} setName={setName} text={text} setText={setText} />
+      ) : (
+        <TwoWeekTest text={two} setText={setTwo} onHistory={() => setMode("history")} />
+      )}
+    </>
+  )
+}
+
+function HistoryTest({
+  name,
+  setName,
+  text,
+  setText,
+}: {
+  name: string
+  setName: (s: string) => void
+  text: string
+  setText: (s: string) => void
+}) {
   const { values, unit } = React.useMemo(() => parseSeries(text), [text])
   const res = React.useMemo(() => flukeTest(values), [values])
   const preset = presets.find((p) => p.text === text && p.name === name)?.id ?? null
@@ -93,7 +134,7 @@ export function FlukeTest({ initial }: { initial?: { name: string; text: string 
   }
 
   return (
-    <div className="mt-10 grid items-start gap-6 lg:grid-cols-[380px_minmax(0,1fr)]">
+    <div className="mt-5 grid items-start gap-6 lg:grid-cols-[380px_minmax(0,1fr)]">
       <div className="grid gap-5 rounded-lg border border-border bg-card p-5">
         <Field label="Try an example">
           <Segmented
@@ -226,7 +267,7 @@ export function FlukeTest({ initial }: { initial?: { name: string; text: string 
               </a>
             </Button>
             <Button asChild className="ml-auto max-sm:ml-0">
-              <Link href="/demo">
+              <Link href="/connect">
                 Run this on every metric, every Monday <ArrowUpRight className="size-4" strokeWidth={1.5} />
               </Link>
             </Button>

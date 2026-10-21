@@ -1,0 +1,121 @@
+id: sessions-per-user
+name: Sessions per user
+aliases:
+  - Sessions per active user
+  - Session frequency
+  - Average sessions per user
+  - Weekly sessions per user
+family: engagement
+kind: ratio
+polarity: up-is-good
+
+definition:
+  one_line: The average number of sessions each active person had this week, Monday to Sunday UTC.
+  formula: Distinct sessions ÷ distinct active people, in the same week
+
+events:
+  - name: "*"
+    description: Any event a person sends; its session id groups events into sessions.
+    also_called: [All events, Any event, Active event]
+    properties:
+      - name: $session_id
+        description: The session the event belongs to. PostHog starts a new one after 30 minutes without events.
+      - name: $os
+        description: The operating system, for splitting by platform.
+
+numerator:
+  label: Sessions
+  aggregate: unique_sessions
+  event: "*"
+denominator:
+  label: Active people
+  aggregate: unique_users
+  event: "*"
+
+noise:
+  type: mean
+  cv: 1.2
+  min_denominator: 100
+  volume_unit: weekly active users
+  typical: 3.6
+
+example:
+  business: app
+  level: 3.6
+  volume: 52000
+  trend: 0.02
+
+drivers:
+  - id: session-definition
+    label: How sessions are counted
+    dropped:
+      check: Did sessions start merging, from a longer timeout or events arriving without a session id on one platform?
+      yes: Events with no session id rise, or the average falls on one platform overnight.
+    spiked:
+      check: Did something start splitting sessions, such as a shorter timeout, an SDK update or backgrounding the app?
+      yes: Sessions jump on one platform or app version from the release date while time in the product holds.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Did a holiday break the routines that bring people back several times a week?
+      yes: The same week last year shows the same dip once aligned on the holiday.
+    spiked:
+      check: Is this a seasonal high for the product?
+      yes: The same weeks last year show the same rise.
+  - id: user-mix
+    label: New people in the average
+    metric: signups
+    dropped:
+      check: Did a wave of new people, who have fewer sessions in their first week, join the average?
+      yes: Sessions per returning person hold while new people's share of actives rises.
+    spiked:
+      check: Did new arrivals slow, leaving more heavy users in the average?
+      yes: Sessions per returning person hold and the average rises without anyone using the product more.
+  - id: platform
+    label: Platform and releases
+    breakdown: $os
+    feed: app-stores
+    dropped:
+      check: Is the fall on one platform, after a release or OS update?
+      yes: One platform's average falls from the release date while the others hold.
+    spiked:
+      check: Is the rise on one platform only?
+      yes: One platform rises from a release date; check it isn't the session rule changing.
+  - id: error-retry
+    label: Errors and crashes
+    metric: error-rate
+    dropped:
+      check: Did errors or slow loads make people give up?
+      yes: Error rate rises on the same platform where sessions per user falls.
+    spiked:
+      check: Are people reopening the product because it crashed?
+      yes: Error rate rises too, and the extra sessions are short and close together.
+  - id: notifications
+    label: Notifications
+    dropped:
+      check: Did pushes or reminders that bring people back stop, or lose OS permission?
+      yes: Sessions opened from notifications fall while other sessions hold.
+    spiked:
+      check: Did a new push or reminder go live?
+      yes: Sessions opened from notifications rise; check that they last as long as other sessions.
+
+diagnose_order: [session-definition, calendar, user-mix, platform, error-retry, notifications]
+
+related: [dau, wau, stickiness, error-rate, pages-per-session]
+
+prose:
+  why_it_matters: >-
+    Sessions per user measures frequency: how often active people come back within a week,
+    separate from how many of them there are. A product can hold its weekly actives while
+    frequency falls, which is often the first sign of a fading habit. At 52,000 weekly actives
+    the average moves about 1.5% by chance, so a 5% fall is real.
+  pitfalls:
+    - A session is whatever your tool says it is. PostHog ends one after 30 minutes without events and many mobile SDKs end one on backgrounding, so changing the rule changes the number with no change in behaviour.
+    - Events without a session id drop out of the numerator while their people stay in the denominator. Check the share of events with no session before reading a fall.
+    - New people pull the average down in weeks with strong acquisition. Read returning people on their own.
+    - A crash that makes people reopen the product raises sessions per user. Check error rate before celebrating a rise.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

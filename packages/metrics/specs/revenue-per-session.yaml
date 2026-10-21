@@ -1,0 +1,129 @@
+id: revenue-per-session
+name: Revenue per session
+aliases:
+  - Revenue per visit
+  - RPS
+  - Session value
+family: revenue
+kind: currency
+polarity: up-is-good
+
+definition:
+  one_line: Order revenue earned per session, the one number that combines conversion rate and order value.
+  formula: Order revenue after discounts ÷ sessions
+
+events:
+  - name: $pageview
+    description: A page loaded in the browser. Sessions are the distinct session ids across page views.
+    also_called: [page_view, Page Viewed, page]
+    properties:
+      - name: $session_id
+        description: The browser session; a new one starts after 30 minutes without activity.
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: total
+        description: Order value after discounts, before tax and shipping.
+
+numerator:
+  label: Order revenue
+  aggregate: sum
+  event: order_completed
+  property: total
+denominator:
+  label: Sessions
+  aggregate: unique_sessions
+  event: $pageview
+
+noise:
+  type: mean
+  cv: 9
+  min_denominator: 2000
+  volume_unit: sessions a week
+  typical: 2
+  reference_volumes: [2000, 10000, 50000, 250000]
+
+example:
+  business: store
+  level: 2.22
+  volume: 600000
+  trend: 0.1
+  season: 1
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Did orders stop recording, or did a new tag start splitting visits into extra sessions?
+      yes: Orders in the store platform hold while recorded orders fall, or sessions per visitor jump on one day.
+    spiked:
+      check: Did page views stop recording on some pages or browsers, or did orders start recording twice?
+      yes: Sessions fall with no matching fall in ad clicks, or the same order_id appears twice.
+  - id: calendar
+    label: Shopping calendar
+    feed: shopping
+    dropped:
+      check: Was last week a sale, holiday or payday week?
+      yes: The same week last year shows the same dip once aligned on the event.
+    spiked:
+      check: Is this a sale, holiday or payday week?
+      yes: The same week last year shows the same jump once aligned on the event.
+  - id: traffic-mix
+    label: Who arrived
+    breakdown: utm_source
+    dropped:
+      check: Did sessions grow from a low-intent source or from bots?
+      yes: Sessions jump from one source that earns a fraction of the rest per visit, while revenue barely moves.
+    spiked:
+      check: Did a low-intent source or a bot wave shrink, lifting revenue per session without more revenue?
+      yes: Sessions fall while revenue holds. Check total revenue before celebrating.
+  - id: conversion
+    label: Store conversion
+    metric: conversion-rate
+    dropped:
+      check: Did a smaller share of sessions buy?
+      yes: Conversion falls by about as much as revenue per session while order value holds.
+    spiked:
+      check: Did a larger share of sessions buy?
+      yes: Conversion rises by about as much as revenue per session while order value holds.
+  - id: order-value
+    label: Order value
+    metric: aov
+    dropped:
+      check: Did orders get smaller, from discounts, fewer items or cheaper products?
+      yes: Order value falls while conversion holds.
+    spiked:
+      check: Did orders get larger, or did a handful of very large orders land?
+      yes: Order value rises while conversion holds; check the largest orders first.
+  - id: device-split
+    label: Mobile vs desktop
+    breakdown: $device_type
+    dropped:
+      check: Is the drop on one device type only, or did mobile take a larger share of sessions?
+      yes: One device falls while the other holds, or each holds and only the mix moved.
+    spiked:
+      check: Is the rise on one device type only?
+      yes: One device rises after a release; confirm it isn't a tracking change before crediting it.
+
+diagnose_order: [tracking, calendar, traffic-mix, conversion, order-value, device-split]
+
+related: [conversion-rate, aov, sessions, net-revenue, cpc]
+
+prose:
+  why_it_matters: >-
+    Revenue per session is what a visit is worth, so it is the number to set beside what a visit
+    costs. At Northwind a session earns about $2.22 ($1.33M of order revenue over 600,000
+    sessions); at a 58% gross margin, a channel that pays more than about $1.29 per session loses
+    money on the first order. Because it multiplies
+    conversion by order value, it is also the fairest single number for tests that trade one
+    against the other.
+  pitfalls:
+    - Most sessions earn nothing and a few earn a lot, so the weekly figure swings with a handful of large orders. Below about 50,000 sessions a week, a 10% move is often chance.
+    - Revenue per visitor divides by people, not sessions, and reads higher because visitors make several sessions. Don't compare one with the other's benchmark.
+    - Bot sessions lower it without any change in shoppers. When it drops with revenue flat, check sessions by browser and country.
+    - This spec uses order revenue before refunds so it matches what the sessions produced. Subtracting refunds makes it move with returns from earlier weeks.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

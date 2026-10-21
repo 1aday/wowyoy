@@ -1,0 +1,133 @@
+id: conversion-rate
+name: Conversion rate
+aliases:
+  - Ecommerce conversion rate
+  - Store conversion rate
+  - Online store conversion rate
+  - Session conversion rate
+  - Purchase conversion rate
+family: conversion
+catalog_id: conversion_rate
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of sessions that end in a paid order, the whole store funnel in one number.
+  formula: Sessions with a paid order ÷ sessions
+
+events:
+  - name: $pageview
+    description: A page loaded in the browser. Sessions are the distinct session ids across page views.
+    also_called: [page_view, Page Viewed, page_viewed]
+    properties:
+      - name: $session_id
+        description: The browser session; a new one starts after 30 minutes without activity.
+  - name: order_completed
+    description: A paid order confirmed by the server, carrying the browser's session id.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+      - name: $session_id
+        description: The session the order was placed in, passed from the browser to the server.
+
+numerator:
+  label: Sessions with a paid order
+  aggregate: unique_sessions
+  event: order_completed
+denominator:
+  label: Sessions
+  aggregate: unique_sessions
+  event: $pageview
+
+noise:
+  type: binomial
+  min_denominator: 2000
+  volume_unit: sessions a week
+  typical: 0.02
+  reference_volumes: [2000, 10000, 50000, 250000]
+
+example:
+  business: store
+  level: 0.022
+  volume: 600000
+  trend: 0.01
+  season: 1
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Did a consent banner, tag manager or checkout change stop orders, or their session ids, being recorded?
+      yes: Orders in the store platform or payment processor hold while orders recorded in analytics fall.
+    spiked:
+      check: Did page views stop being recorded somewhere, shrinking sessions while orders kept recording?
+      yes: Sessions fall with no matching fall in ad clicks or server logs, often on one browser or after a consent change.
+  - id: calendar
+    label: Shopping calendar
+    feed: shopping
+    dropped:
+      check: Was last week a sale, holiday or payday week, or is this the week before one when shoppers wait?
+      yes: The same week last year shows the same dip once aligned on the event.
+    spiked:
+      check: Is this a sale, holiday or payday week? Compare with the same week last year before crediting the site.
+      yes: The same week last year shows the same jump once aligned on the event.
+  - id: traffic-mix
+    label: Who arrived
+    breakdown: utm_source
+    feed: cloudflare
+    dropped:
+      check: Did sessions grow from a low-intent source or from bots, such as broad paid social, a viral post or a crawler?
+      yes: Sessions jump from one source whose conversion is a fraction of the rest, while orders barely move.
+    spiked:
+      check: Did a low-intent source or a bot wave shrink, lifting the rate without more orders?
+      yes: Sessions fall while orders hold. Check orders before celebrating.
+  - id: add-to-cart
+    label: Product pages and carts
+    metric: add-to-cart-rate
+    dropped:
+      check: Did fewer product viewers add to cart, from price, stock or a product page change?
+      yes: Add-to-cart rate falls by about as much as conversion while checkout steps hold.
+    spiked:
+      check: Did more product viewers add to cart, from a sale, a restock or a page change?
+      yes: Add-to-cart rate rises and checkout starts follow it.
+  - id: checkout
+    label: Checkout and payment
+    metric: checkout-conversion
+    feed: stripe
+    dropped:
+      check: Did more started checkouts fail, at shipping, payment or account creation?
+      yes: Checkout conversion falls while add-to-cart holds; one step or one payment method explains most of it.
+    spiked:
+      check: Did a checkout or payment problem from the week before clear?
+      yes: Checkout conversion returns to its usual level and conversion recovers with it.
+  - id: device-split
+    label: Mobile vs desktop
+    breakdown: $device_type
+    dropped:
+      check: Is the drop on one device type only?
+      yes: Mobile falls while desktop is flat, which points at a release, a layout bug or a browser update.
+    spiked:
+      check: Is the rise on one device type only?
+      yes: One device jumps after a release; confirm it isn't a tracking change before crediting it.
+
+diagnose_order: [tracking, calendar, traffic-mix, add-to-cart, checkout, device-split]
+
+related: [sessions, add-to-cart-rate, checkout-conversion, mobile-conversion-rate, revenue-per-session, product-view-rate]
+
+prose:
+  why_it_matters: >-
+    Conversion rate turns traffic into orders, so almost every change to the store shows up in
+    it eventually. At 600,000 sessions a week, a tenth of a point is 600 orders, about $60,000 a
+    week at Northwind's $100 order. It moves with who arrives as much as with the store, so read it
+    beside the traffic mix before crediting or blaming the site.
+  pitfalls:
+    - Orders sent from the server often carry no session id and fall out of the numerator. Pass the browser's session id onto the order event or conversion reads low.
+    - Orders ÷ sessions and sessions with an order ÷ sessions differ when shoppers place two orders in one visit. This spec counts sessions, like Shopify's online store conversion rate; at Northwind 2.2% of 600,000 sessions is about 13,200 sessions with an order, against 13,300 orders.
+    - A new low-intent channel lowers conversion while adding orders. Never judge a move without orders and sessions beside it.
+    - Channel splits need the session's landing source on every event, including the order; otherwise orders land in an unattributed bucket and every channel looks worse.
+    - Comparing Black Friday week with the week before mixes intent. Compare with last year's Black Friday week instead.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

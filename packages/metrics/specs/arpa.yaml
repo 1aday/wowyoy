@@ -1,0 +1,303 @@
+id: arpa
+name: Average revenue per account
+aliases:
+  - ARPA
+  - Average revenue per customer
+  - ARPC
+  - Average MRR per customer
+family: subscription
+kind: currency
+polarity: up-is-good
+
+definition:
+  one_line: The average monthly recurring revenue per paying customer account at the end of the week.
+  formula: MRR at week end ÷ customer accounts with at least one paying subscription, measured Sunday 23:59 UTC
+
+events:
+  - name: subscription_updated
+    description: Any change to a subscription's plan, quantity, discount or status, with its new monthly amount.
+    also_called: [customer.subscription.updated, Subscription Updated, subscription_changed]
+    properties:
+      - name: subscription_id
+        description: The billing system's subscription id.
+      - name: mrr
+        description: The subscription's monthly amount after the change, after discounts, before tax.
+      - name: status
+        description: active, trialing, past_due or canceled.
+
+numerator:
+  label: MRR at week end
+  aggregate: sum
+  event: subscription_updated
+  property: mrr
+
+queries:
+  hogql: |-
+    -- ARPA at the end of each week: MRR ÷ customers with at least one paying (active or past-due) subscription, each subscription at its latest subscription_updated before Monday 00:00 UTC. A customer is the person on the subscription. Last 26 complete weeks, oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT
+      w.week AS week,
+      coalesce(a.mrr, 0) AS numerator,
+      coalesce(a.accounts, 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, sum(account_mrr) AS mrr, count() AS accounts
+      FROM (
+        SELECT week, tupleElement(latest, 1) AS account, sum(tupleElement(latest, 2)) AS account_mrr
+        FROM (
+          SELECT s.week AS week, u.subscription_id AS subscription_id, argMax(tuple(u.person, u.mrr, u.status), u.ts) AS latest
+          FROM (
+            SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+          ) AS s
+          CROSS JOIN (
+            SELECT
+              toString(properties.subscription_id) AS subscription_id,
+              person_id AS person,
+              toTimeZone(timestamp, 'UTC') AS ts,
+              toFloat(properties.mrr) AS mrr,
+              toString(properties.status) AS status
+            FROM events
+            WHERE event = 'subscription_updated'
+              AND properties.subscription_id IS NOT NULL
+              AND toMonday(toTimeZone(timestamp, 'UTC')) < toMonday(toTimeZone(now(), 'UTC'))
+          ) AS u
+          WHERE toMonday(u.ts) <= s.week
+          GROUP BY week, subscription_id
+        )
+        WHERE tupleElement(latest, 3) IN ('active', 'past_due')
+        GROUP BY week, account
+      )
+      WHERE account_mrr > 0
+      GROUP BY week
+    ) AS a ON a.week = w.week
+    ORDER BY week
+  postgres: |-
+    -- ARPA at the end of each week: MRR ÷ customers with at least one paying (active or past-due) subscription, each subscription at its latest subscription_updated before Monday 00:00 UTC. A customer is the user_id on the subscription. Last 26 complete weeks, oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week, g.week + interval '1 week' AS week_end
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    updates AS (
+      SELECT
+        properties->>'subscription_id' AS subscription_id,
+        user_id AS customer,
+        occurred_at AT TIME ZONE 'UTC' AS ts,
+        CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END AS mrr,
+        properties->>'status' AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND properties->>'subscription_id' IS NOT NULL
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+    ),
+    latest AS (
+      SELECT DISTINCT ON (w.week, u.subscription_id) w.week, u.customer, u.mrr, u.status
+      FROM weeks AS w
+      JOIN updates AS u ON u.ts < w.week_end
+      ORDER BY w.week, u.subscription_id, u.ts DESC
+    ),
+    accounts AS (
+      SELECT week, customer, sum(mrr) AS mrr
+      FROM latest
+      WHERE status IN ('active', 'past_due')
+      GROUP BY week, customer
+    ),
+    weekly AS (
+      SELECT week, sum(mrr) AS mrr, count(*) AS accounts
+      FROM accounts
+      WHERE mrr > 0
+      GROUP BY week
+    )
+    SELECT
+      w.week,
+      coalesce(a.mrr, 0) AS numerator,
+      coalesce(a.accounts, 0) AS denominator,
+      a.mrr / nullif(a.accounts, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS a ON a.week = w.week
+    ORDER BY w.week;
+  bigquery: |-
+    -- ARPA at the end of each week: MRR ÷ customers with at least one paying (active or past-due) subscription, each subscription at its latest subscription_updated before Monday 00:00 UTC. A customer is the user_id on the subscription. Last 26 complete weeks, oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    updates AS (
+      SELECT
+        JSON_VALUE(properties, '$.subscription_id') AS subscription_id,
+        user_id AS customer,
+        occurred_at,
+        SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64) AS mrr,
+        JSON_VALUE(properties, '$.status') AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND JSON_VALUE(properties, '$.subscription_id') IS NOT NULL
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+    ),
+    latest AS (
+      SELECT w.week, u.customer, u.mrr, u.status
+      FROM weeks AS w
+      CROSS JOIN updates AS u
+      WHERE u.occurred_at < TIMESTAMP(DATE_ADD(w.week, INTERVAL 1 WEEK))
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY w.week, u.subscription_id ORDER BY u.occurred_at DESC) = 1
+    ),
+    accounts AS (
+      SELECT week, customer, SUM(mrr) AS mrr
+      FROM latest
+      WHERE status IN ('active', 'past_due')
+      GROUP BY week, customer
+    ),
+    weekly AS (
+      SELECT week, SUM(mrr) AS mrr, COUNT(*) AS accounts
+      FROM accounts
+      WHERE mrr > 0
+      GROUP BY week
+    )
+    SELECT
+      w.week,
+      COALESCE(a.mrr, 0) AS numerator,
+      COALESCE(a.accounts, 0) AS denominator,
+      SAFE_DIVIDE(a.mrr, a.accounts) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS a ON a.week = w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- ARPA at the end of each week: MRR ÷ customers with at least one paying (active or past-due) subscription, each subscription at its latest subscription_updated before Monday 00:00 UTC. A customer is the user_id on the subscription. Last 26 complete weeks, oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    updates AS (
+      SELECT
+        properties:"subscription_id"::string AS subscription_id,
+        user_id AS customer,
+        occurred_at,
+        TRY_TO_DOUBLE(properties:"mrr"::string) AS mrr,
+        properties:"status"::string AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND properties:"subscription_id"::string IS NOT NULL
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+    ),
+    latest AS (
+      SELECT w.week, u.customer, u.mrr, u.status
+      FROM weeks AS w
+      JOIN updates AS u ON u.occurred_at < DATEADD(week, 1, w.week)
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY w.week, u.subscription_id ORDER BY u.occurred_at DESC) = 1
+    ),
+    accounts AS (
+      SELECT week, customer, SUM(mrr) AS mrr
+      FROM latest
+      WHERE status IN ('active', 'past_due')
+      GROUP BY week, customer
+    ),
+    weekly AS (
+      SELECT week, SUM(mrr) AS mrr, COUNT(*) AS accounts
+      FROM accounts
+      WHERE mrr > 0
+      GROUP BY week
+    )
+    SELECT
+      w.week,
+      COALESCE(a.mrr, 0) AS numerator,
+      COALESCE(a.accounts, 0) AS denominator,
+      a.mrr / NULLIF(a.accounts, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS a ON a.week = w.week
+    ORDER BY w.week;
+
+noise:
+  type: process
+  min_denominator: 50
+  volume_unit: paying accounts
+  typical: 126
+
+example:
+  business: saas
+  level: 126
+  volume: 1900
+  trend: 0.03
+
+drivers:
+  - id: account-counting
+    label: Account counting
+    dropped:
+      check: Did zero-amount, test or duplicate accounts start being counted?
+      yes: The account count jumps with no matching rise in MRR, usually free plans now synced as subscriptions or one customer split across several ids.
+    spiked:
+      check: Did accounts merge or drop out of the count, for example after a customer-id migration?
+      yes: The account count falls with no matching cancellations.
+  - id: pricing
+    label: Pricing and discounts
+    dropped:
+      check: Did a discount, coupon campaign or cheaper plan go live?
+      yes: New and renewing accounts land at lower prices from the launch date.
+    spiked:
+      check: Did a price increase or coupon expiry take effect?
+      yes: Many accounts change amount on the same day with no plan change. It won't repeat.
+  - id: plan-mix
+    label: Plan mix
+    breakdown: plan
+    dropped:
+      check: Has the mix of accounts shifted toward cheaper plans?
+      yes: The share of accounts on the entry plan grows while each plan's own average holds.
+    spiked:
+      check: Has the mix shifted toward larger plans?
+      yes: The share of accounts on the top plans grows while each plan's own average holds.
+  - id: churn-mix
+    label: Who churned
+    metric: logo-churn-rate
+    dropped:
+      check: Did larger accounts churn or downgrade?
+      yes: The MRR lost per departing account is well above ARPA this week.
+    spiked:
+      check: Did many small accounts churn, lifting the average without anyone paying more?
+      yes: Logo churn rises while MRR barely moves. ARPA rose for a bad reason.
+  - id: new-mix
+    label: Who started
+    metric: new-mrr
+    dropped:
+      check: Are new customers starting on smaller plans than the base pays?
+      yes: New MRR per new account is well below ARPA, often after a cheaper plan or a self-serve launch.
+    spiked:
+      check: Did a few large new accounts, or a move upmarket, lift the average?
+      yes: New MRR per new account is well above ARPA; one or two deals explain most of it.
+  - id: expansion
+    label: Expansion
+    metric: expansion-mrr
+    dropped:
+      check: Did upgrades and seat additions slow while accounts kept growing?
+      yes: Expansion MRR falls below its usual range for several weeks.
+    spiked:
+      check: Did upgrades or a usage limit raise what existing accounts pay?
+      yes: Expansion MRR jumps in the weeks ARPA rose.
+
+diagnose_order: [account-counting, pricing, plan-mix, churn-mix, new-mix, expansion]
+
+related: [mrr, new-mrr, expansion-mrr, logo-churn-rate, customer-lifetime-value]
+
+prose:
+  why_it_matters: >-
+    ARPA says what a typical customer is worth each month, and it moves with pricing, packaging
+    and who you sell to rather than with how many you sell. Rising ARPA with a flat customer
+    count is expansion working; rising ARPA because small customers left is churn in disguise.
+    At $126 a month, a $10 move that holds for several weeks is a change in pricing or in who buys.
+  pitfalls:
+    - Divide by paying accounts, not users or seats. A customer with ten seats is one account; counting seats turns ARPA into price per seat.
+    - Free plans and zero-amount subscriptions in the count pull ARPA down every time sign-ups rise. Count only accounts paying more than zero.
+    - A customer with several subscriptions is still one account. Counting subscriptions understates ARPA for exactly the customers who buy the most.
+    - ARPA rising because small customers churned looks like good news on its own. Read it next to logo churn.
+    - When a few enterprise accounts are a large share of MRR, the mean hides the typical customer. Look at the median too.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

@@ -1,0 +1,117 @@
+id: ad-spend
+name: Ad spend
+aliases:
+  - Marketing spend
+  - Media spend
+  - Paid media spend
+  - Advertising spend
+family: acquisition
+catalog_id: spend
+kind: currency
+polarity: down-is-good
+
+definition:
+  one_line: Money spent on paid ads across every synced ad platform in the week, as each platform reports it.
+  formula: Sum of daily spend across ad channels and campaigns
+
+events:
+  - name: ad_spend
+    description: One row per channel per day, synced from each ad platform's reporting API.
+    also_called: [Ad Spend, ad_performance, campaign_daily_stats]
+    properties:
+      - name: channel
+        description: The platform (google, meta, tiktok, microsoft, pinterest).
+      - name: campaign
+        description: The campaign name or id on that platform.
+      - name: spend
+        description: Amount spent that day, in the store's reporting currency, before agency fees.
+      - name: impressions
+        description: Ads shown that day.
+      - name: clicks
+        description: Link clicks that day, as the platform defines them.
+
+numerator:
+  label: Ad spend
+  aggregate: sum
+  event: ad_spend
+  property: spend
+
+noise:
+  type: process
+  min_denominator: 1
+  volume_unit: campaigns with spend a week
+  typical: 20000
+
+example:
+  business: store
+  level: 300000
+  volume: 60
+  trend: 0.25
+
+drivers:
+  - id: sync
+    label: Spend sync
+    breakdown: channel
+    dropped:
+      check: Did a platform's sync fail or fall behind, so some days are missing?
+      yes: One channel shows zero or partial spend for some days while its own dashboard shows the usual amount.
+    spiked:
+      check: Is a day synced twice, or a currency recorded as if it were dollars?
+      yes: One channel shows exactly double a day, or a jump that matches an exchange rate.
+  - id: billing
+    label: Billing and account status
+    feed: ad-platforms
+    dropped:
+      check: Was a payment method declined, a spending limit hit, an account suspended or ads disapproved?
+      yes: One platform's spend stops on a single day and its delivery notifications say why.
+    spiked:
+      check: Did a stopped account come back and catch up on delivery?
+      yes: One platform's spend returns after a gap, sometimes above its usual daily rate.
+  - id: calendar
+    label: Calendar
+    feed: shopping
+    dropped:
+      check: Did a planned push such as Black Friday or a launch end?
+      yes: Budgets return to their usual level the week after the event.
+    spiked:
+      check: Is this a planned sale, holiday or launch week with raised budgets?
+      yes: The same week last year shows the same rise, and the plan says so.
+  - id: campaigns
+    label: Campaigns and budgets
+    breakdown: campaign
+    dropped:
+      check: Did a campaign pause, end, or lose delivery after a learning reset or audience change?
+      yes: One or two campaigns account for most of the fall.
+    spiked:
+      check: Did a new campaign launch, a budget rise, or automated bidding start spending past its usual pace?
+      yes: One or two campaigns account for most of the rise; check whether results rose with them.
+  - id: auction
+    label: Auction prices
+    metric: cpm
+    dropped:
+      check: With budgets uncapped, did cheaper or scarcer impressions lower what the platforms could spend?
+      yes: CPMs fall or delivery is limited while budgets are unchanged.
+    spiked:
+      check: Did auction prices rise, so the same delivery costs more?
+      yes: CPMs rise across platforms in the same week, often in Q4.
+
+diagnose_order: [sync, billing, calendar, campaigns, auction]
+
+related: [mer, ncac, roas, cpm, paid-sessions, blended-cac]
+
+prose:
+  why_it_matters: >-
+    Spend is the one acquisition number the team chooses, so a move that nobody planned is
+    either a broken sync or a campaign spending without supervision. Automated bidding can run
+    well past its usual daily pace after a budget or target change. At $300,000 a week, a sync
+    that misses one day of a platform carrying half the budget understates spend by about 7%,
+    and MER and CAC look about 7% better than they are.
+  pitfalls:
+    - Ad platforms report days in the ad account's time zone. Summed into UTC weeks, a few hours of spend move between weeks, and a time zone change on the account shifts a whole day.
+    - Platforms restate recent spend for invalid clicks and late data. Re-sync the last 7 days every day, or last week's number changes after you report it.
+    - Spend here is media only. Agency fees, creative production and platform tools are real acquisition costs; sync them as their own channel if CAC should include them.
+    - Accounts billed in different currencies need one fixed exchange rate per week, or currency moves look like budget changes.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

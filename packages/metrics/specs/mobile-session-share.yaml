@@ -1,0 +1,124 @@
+id: mobile-session-share
+name: Mobile session share
+aliases:
+  - Mobile traffic share
+  - Mobile share of traffic
+  - Mobile traffic percentage
+family: traffic
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of the week's sessions that happened on a phone, not counting tablets.
+  formula: Sessions on a mobile device ÷ all sessions
+
+events:
+  - name: $pageview
+    description: One page load or client-side route change, captured in the browser.
+    also_called: [page_view, Page Viewed, page]
+    properties:
+      - name: $device_type
+        description: Mobile, Desktop or Tablet, parsed from the user agent.
+      - name: $session_id
+        description: Set by the analytics SDK; ties the page view to a visit.
+      - name: utm_source
+        description: The campaign source from the landing URL (google, facebook, tiktok).
+      - name: utm_medium
+        description: The campaign medium from the landing URL (cpc, email, sms).
+      - name: $browser
+        description: The browser or in-app webview, parsed from the user agent.
+
+numerator:
+  label: Mobile sessions
+  aggregate: unique_sessions
+  event: $pageview
+  where:
+    - property: $device_type
+      op: eq
+      value: Mobile
+denominator:
+  label: Sessions
+  aggregate: unique_sessions
+  event: $pageview
+
+noise:
+  type: binomial
+  min_denominator: 200
+  volume_unit: sessions a week
+  typical: 0.7
+  reference_volumes: [1000, 5000, 25000, 100000]
+
+example:
+  business: store
+  level: 0.68
+  volume: 600000
+  trend: 0.02
+
+drivers:
+  - id: tracking
+    label: Device detection and bots
+    breakdown: $browser
+    dropped:
+      check: Is a desktop bot or crawler adding sessions, or did a user-agent change reclassify phones?
+      yes: Desktop sessions jump from one browser or data-centre network that never orders.
+    spiked:
+      check: Did an in-app browser, a tracking fix or a mobile bot start counting more phone sessions?
+      yes: Mobile sessions rise from one browser or app webview while orders hold.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Did a holiday or long weekend end, sending people back to desks?
+      yes: The same weeks last year show the same shift back to desktop.
+    spiked:
+      check: Is this a holiday or vacation week, when people browse from phones?
+      yes: The same week last year shows the same rise in mobile share.
+  - id: paid-social
+    label: Paid social
+    metric: paid-sessions
+    breakdown: utm_source
+    dropped:
+      check: Did paid social spend, which is almost all mobile, fall or pause?
+      yes: Sessions from Meta, TikTok or Snap fall and the mobile share falls with them.
+    spiked:
+      check: Did a paid social campaign or creator push start?
+      yes: Sessions from a social source jump and nearly all of them are on phones.
+  - id: email-and-sms
+    label: Email and SMS sends
+    breakdown: utm_medium
+    dropped:
+      check: Did fewer email or SMS sends go out this week?
+      yes: Email and SMS sessions, mostly on phones, fall by enough to explain the shift.
+    spiked:
+      check: Did a big email or SMS campaign go out?
+      yes: Sessions tagged email or sms jump on the send days, mostly on phones.
+  - id: desktop-sources
+    label: Desktop-heavy sources
+    metric: organic-sessions
+    dropped:
+      check: Did search, B2B or work-hours traffic, which skews desktop, grow?
+      yes: Desktop sessions rise from search or one referrer while mobile holds.
+    spiked:
+      check: Did desktop-heavy sources such as search or a partner site shrink?
+      yes: Desktop sessions fall from one source while mobile holds.
+
+diagnose_order: [tracking, calendar, paid-social, email-and-sms, desktop-sources]
+
+related: [sessions, mobile-conversion-rate, conversion-rate, bounce-rate, paid-sessions]
+
+prose:
+  why_it_matters: >-
+    Phones bring most store visits but convert below desktop, so the device mix moves store
+    conversion with no change to the site. At Northwind, phones convert at 1.8% and desktop and
+    tablets at about 3%, so a rise in mobile share from 68% to 73% lowers overall conversion by
+    about 0.06 points, roughly 360 orders a week on 600,000 sessions, from the mix alone. Check
+    this before blaming checkout.
+  pitfalls:
+    - Tablets are not mobile here. Tools that fold tablets into mobile read higher by the tablet share, so check which definition a comparison uses.
+    - Device type comes from the user agent. iPads on Safari report a Mac user agent and count as desktop, and in-app webviews can be misread, so sessions can move between devices without anyone changing what they use.
+    - The share can rise because desktop fell. Read it with mobile and desktop session counts side by side.
+    - Many bots and crawlers announce a desktop user agent, so a bot wave lowers mobile share. Rule that out before reading a falling share as a change in shoppers.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

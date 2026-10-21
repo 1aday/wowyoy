@@ -1,0 +1,233 @@
+id: cac-payback
+name: CAC payback period
+aliases:
+  - Payback period
+  - CAC payback months
+  - Months to recover CAC
+family: acquisition
+kind: duration
+duration_unit: months
+polarity: down-is-good
+
+definition:
+  one_line: How many months of gross margin from the week's new customers it takes to earn back what was spent to win them.
+  formula: Acquisition spend ÷ (new MRR × gross margin)
+
+events:
+  - name: ad_spend
+    description: One row per channel per day of acquisition cost. Ad platforms sync their media spend; other costs can be added as their own channel.
+    also_called: [Ad Spend, ad_performance, campaign_daily_stats]
+    properties:
+      - name: spend
+        description: Amount spent that day, in the reporting currency.
+  - name: subscription_started
+    description: A subscription's first paid period began, after any free trial.
+    also_called: [Subscription Started, subscription_activated, invoice.paid (first)]
+    properties:
+      - name: mrr
+        description: Monthly amount of the new subscription, after discounts, before tax. Annual plans divided by twelve.
+      - name: plan
+        description: The plan the customer started on.
+
+numerator:
+  label: Acquisition spend
+  aggregate: sum
+  event: ad_spend
+  property: spend
+denominator:
+  label: New MRR × gross margin
+  aggregate: sum
+  event: subscription_started
+  property: mrr
+
+queries:
+  hogql: |-
+    -- CAC payback per week, in months: acquisition spend ÷ (new MRR × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Gross margin is set to 0.80 below; replace it with your own.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT
+      w.week AS week,
+      coalesce(f.spend, 0) AS numerator,
+      coalesce(f.new_mrr, 0) * 0.80 AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT
+        toMonday(toTimeZone(timestamp, 'UTC')) AS week,
+        sumIf(toFloat(properties.spend), event = 'ad_spend') AS spend,
+        sumIf(toFloat(properties.mrr), event = 'subscription_started') AS new_mrr
+      FROM events
+      WHERE event IN ('ad_spend', 'subscription_started')
+        AND timestamp >= now() - toIntervalWeek(27)
+        AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+      GROUP BY week
+    ) AS f ON f.week = w.week
+    ORDER BY week
+  postgres: |-
+    -- CAC payback per week, in months: acquisition spend ÷ (new MRR × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Gross margin is set to 0.80 below; replace it with your own.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    flows AS (
+      SELECT
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week,
+        sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END) FILTER (WHERE event_name = 'ad_spend') AS spend,
+        sum(CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END) FILTER (WHERE event_name = 'subscription_started') AS new_mrr
+      FROM events
+      WHERE event_name IN ('ad_spend', 'subscription_started')
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+      GROUP BY 1
+    ),
+    totals AS (
+      SELECT w.week, coalesce(f.spend, 0) AS numerator, coalesce(f.new_mrr, 0) * 0.80 AS denominator
+      FROM weeks AS w
+      LEFT JOIN flows AS f ON f.week = w.week
+    )
+    SELECT week, numerator, denominator, numerator / nullif(denominator, 0) AS value
+    FROM totals
+    ORDER BY week;
+  bigquery: |-
+    -- CAC payback per week, in months: acquisition spend ÷ (new MRR × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Gross margin is set to 0.80 below; replace it with your own.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    flows AS (
+      SELECT
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
+        SUM(IF(event_name = 'ad_spend', SAFE_CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64), NULL)) AS spend,
+        SUM(IF(event_name = 'subscription_started', SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64), NULL)) AS new_mrr
+      FROM events
+      WHERE event_name IN ('ad_spend', 'subscription_started')
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      GROUP BY week
+    ),
+    totals AS (
+      SELECT w.week, COALESCE(f.spend, 0) AS numerator, COALESCE(f.new_mrr, 0) * 0.80 AS denominator
+      FROM weeks AS w
+      LEFT JOIN flows AS f ON f.week = w.week
+    )
+    SELECT week, numerator, denominator, SAFE_DIVIDE(numerator, denominator) AS value
+    FROM totals
+    ORDER BY week;
+  snowflake: |-
+    -- CAC payback per week, in months: acquisition spend ÷ (new MRR × gross margin). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Gross margin is set to 0.80 below; replace it with your own.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    flows AS (
+      SELECT
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week,
+        SUM(IFF(event_name = 'ad_spend', TRY_TO_DOUBLE(properties:"spend"::string), NULL)) AS spend,
+        SUM(IFF(event_name = 'subscription_started', TRY_TO_DOUBLE(properties:"mrr"::string), NULL)) AS new_mrr
+      FROM events
+      WHERE event_name IN ('ad_spend', 'subscription_started')
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+      GROUP BY 1
+    ),
+    totals AS (
+      SELECT w.week, COALESCE(f.spend, 0) AS numerator, COALESCE(f.new_mrr, 0) * 0.80 AS denominator
+      FROM weeks AS w
+      LEFT JOIN flows AS f ON f.week = w.week
+    )
+    SELECT week, numerator, denominator, numerator / NULLIF(denominator, 0) AS value
+    FROM totals
+    ORDER BY week;
+
+noise:
+  type: process
+  min_denominator: 10
+  volume_unit: new subscriptions a week
+  typical: 12
+
+example:
+  business: saas
+  level: 11.5
+  volume: 29
+  trend: 0.06
+
+drivers:
+  - id: data
+    label: Spend and billing data
+    dropped:
+      check: Are migrated, reactivated or duplicate subscriptions counting as new MRR, or is spend missing?
+      yes: New MRR jumps on one day with no matching signups, or one channel's spend has gaps.
+    spiked:
+      check: Is spend synced twice, or did a billing change stop new subscriptions being recorded?
+      yes: One channel's spend doubles for a day, or new subscriptions in the billing system exceed those recorded.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Did a quarter-end push or an annual-plan promotion bring a cluster of new subscriptions?
+      yes: New MRR jumps in the last week of a quarter or a promotion while spend holds.
+    spiked:
+      check: Is this a holiday week, when buyers are away but campaigns keep spending?
+      yes: New MRR falls in holiday weeks and the same weeks last year show it.
+  - id: cac
+    label: Cost per new customer
+    metric: blended-cac
+    dropped:
+      check: Did each new customer cost less, from cheaper channels or better trial conversion?
+      yes: Blended CAC falls by about as much as payback does, while new-customer revenue holds.
+    spiked:
+      check: Did each new customer cost more, from a new channel, a budget increase or fewer conversions?
+      yes: Blended CAC rises by about as much as payback does, while new-customer revenue holds.
+  - id: new-mrr
+    label: New MRR per customer
+    metric: new-mrr
+    breakdown: plan
+    dropped:
+      check: Did new customers start on bigger plans, more seats or annual contracts?
+      yes: New MRR per new customer rises; the plan mix shifts toward higher tiers.
+    spiked:
+      check: Did new customers start on smaller plans, or did a discount lower first-year prices?
+      yes: New MRR per new customer falls; the plan mix shifts toward entry tiers or discounted prices.
+  - id: spend-timing
+    label: Spend ahead of customers
+    metric: ad-spend
+    feed: ad-platforms
+    dropped:
+      check: Did spend fall while customers from earlier weeks' pipeline kept arriving?
+      yes: Spend falls this week while new MRR holds; expect payback to rise again when those deals run out.
+    spiked:
+      check: Did a budget increase, an event or a new channel add cost before the customers it will bring?
+      yes: Spend rises on one channel or line while new MRR holds; judge it again in four to eight weeks.
+
+diagnose_order: [data, calendar, spend-timing, cac, new-mrr]
+
+related: [blended-cac, ltv-to-cac, new-mrr, arpa, gross-margin, net-revenue-retention]
+
+prose:
+  why_it_matters: >-
+    Payback is how long the business waits to get its acquisition money back, which sets how
+    fast it can grow without raising more. It joins what a customer costs and what they pay each
+    month into one number a founder can plan on. At 11.5 months, a dollar spent this week comes
+    back in just under a year and can then be spent again.
+  pitfalls:
+    - Payback without gross margin overstates how fast money comes back. On 80% margin, revenue-based payback reads 20% too short.
+    - Weekly payback swings with deal timing, because spend leads new customers by weeks or months. Plan on the trailing quarter and read the weekly number for direction only.
+    - It assumes customers stay long enough to pay it back. At Copperline's average logo churn of about 0.56% a week, about a quarter of a cohort has left by month 11.5, and new customers usually leave faster than the average; read it with net revenue retention.
+    - Media spend alone gives a flattering number. Sales salaries, agency fees and tools belong in the spend for a fully loaded payback.
+    - New MRR here is every subscription whose first paid period started this week, as in the new MRR spec. If your billing sells add-ons as separate subscriptions, an existing customer's add-on counts too; filter to each customer's first subscription for a strict per-customer payback.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

@@ -1,0 +1,266 @@
+id: week-1-retention
+name: Week 1 retention
+aliases:
+  - W1 retention
+  - First-week retention
+  - Week one retention
+family: engagement
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of new people who are active again in their second week, between 7 and 14 days after their first event, by the week they arrived.
+  formula: People with any event from 7 to 14 days after their first event (days 7–13, hours 168 to 336) ÷ people whose first event fell in the cohort week
+
+events:
+  - name: "*"
+    description: Any event a person sends. A person's first ever event places them in a cohort; any later event counts as a return.
+    also_called: [All events, Any event, Active event]
+    properties:
+      - name: $os
+        description: The operating system, for splitting by platform.
+      - name: utm_source
+        description: The campaign source a person arrived from, for splitting by acquisition channel.
+
+numerator:
+  label: New people active again 7 to 14 days later
+  aggregate: returning_users
+  event: "*"
+
+queries:
+  hogql: |-
+    -- Week 1 retention: of the people whose first event fell in each week, the share with any event 7 to 14 days after it. Cohort weeks 28 to 3 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their window has closed.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT
+      w.week AS week,
+      coalesce(c.retained_people, 0) AS numerator,
+      coalesce(c.people, 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(3, 29))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, countIf(retained) AS retained_people, count() AS people
+      FROM (
+        SELECT
+          toMonday(f.first_at) AS week,
+          f.person_id AS person_id,
+          countIf(e.ts >= f.first_at + toIntervalDay(7) AND e.ts < f.first_at + toIntervalDay(14)) > 0 AS retained
+        FROM (
+          SELECT person_id, min(toTimeZone(timestamp, 'UTC')) AS first_at
+          FROM events
+          WHERE person_id IS NOT NULL
+          GROUP BY person_id
+        ) AS f
+        LEFT JOIN (
+          SELECT person_id, toTimeZone(timestamp, 'UTC') AS ts
+          FROM events
+          WHERE person_id IS NOT NULL
+            AND timestamp >= now() - toIntervalWeek(29)
+        ) AS e ON e.person_id = f.person_id
+        WHERE toMonday(f.first_at) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(28) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(3)
+        GROUP BY week, person_id
+      )
+      GROUP BY week
+    ) AS c ON c.week = w.week
+    ORDER BY week
+  postgres: |-
+    -- Week 1 retention: of the people whose first event fell in each week, the share with any event 7 to 14 days after it. Cohort weeks 28 to 3 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their window has closed.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '28 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '3 weeks',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    firsts AS (
+      SELECT user_id, min(occurred_at AT TIME ZONE 'UTC') AS first_at
+      FROM events
+      WHERE user_id IS NOT NULL
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT
+        date_trunc('week', f.first_at)::date AS week,
+        f.user_id,
+        count(e.occurred_at) > 0 AS retained
+      FROM firsts AS f
+      LEFT JOIN events AS e
+        ON e.user_id = f.user_id
+       AND e.occurred_at AT TIME ZONE 'UTC' >= f.first_at + interval '7 days'
+       AND e.occurred_at AT TIME ZONE 'UTC' < f.first_at + interval '14 days'
+      WHERE f.first_at >= date_trunc('week', now() AT TIME ZONE 'UTC') - interval '28 weeks'
+        AND f.first_at < date_trunc('week', now() AT TIME ZONE 'UTC') - interval '2 weeks'
+      GROUP BY 1, 2
+    )
+    SELECT
+      w.week,
+      count(c.user_id) FILTER (WHERE c.retained) AS numerator,
+      count(c.user_id) AS denominator,
+      (count(c.user_id) FILTER (WHERE c.retained))::numeric / nullif(count(c.user_id), 0) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+  bigquery: |-
+    -- Week 1 retention: of the people whose first event fell in each week, the share with any event 7 to 14 days after it. Cohort weeks 28 to 3 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their window has closed.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 28 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 3 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    firsts AS (
+      SELECT user_id, MIN(occurred_at) AS first_at
+      FROM events
+      WHERE user_id IS NOT NULL
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT
+        DATE_TRUNC(DATE(f.first_at), ISOWEEK) AS week,
+        f.user_id,
+        COUNT(e.occurred_at) > 0 AS retained
+      FROM firsts AS f
+      LEFT JOIN events AS e
+        ON e.user_id = f.user_id
+       AND e.occurred_at >= TIMESTAMP_ADD(f.first_at, INTERVAL 7 DAY)
+       AND e.occurred_at < TIMESTAMP_ADD(f.first_at, INTERVAL 14 DAY)
+      WHERE f.first_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 28 WEEK))
+        AND f.first_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 2 WEEK))
+      GROUP BY week, f.user_id
+    )
+    SELECT
+      w.week,
+      COUNTIF(c.retained) AS numerator,
+      COUNT(c.user_id) AS denominator,
+      SAFE_DIVIDE(COUNTIF(c.retained), COUNT(c.user_id)) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- Week 1 retention: of the people whose first event fell in each week, the share with any event 7 to 14 days after it. Cohort weeks 28 to 3 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their window has closed.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -2 - ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    firsts AS (
+      SELECT user_id, MIN(occurred_at) AS first_at
+      FROM events
+      WHERE user_id IS NOT NULL
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT
+        DATEADD(day, 1 - DAYOFWEEKISO(f.first_at), f.first_at::date) AS week,
+        f.user_id,
+        COUNT(e.occurred_at) > 0 AS retained
+      FROM firsts AS f
+      LEFT JOIN events AS e
+        ON e.user_id = f.user_id
+       AND e.occurred_at >= DATEADD(day, 7, f.first_at)
+       AND e.occurred_at < DATEADD(day, 14, f.first_at)
+      WHERE f.first_at >= DATEADD(week, -28, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND f.first_at < DATEADD(week, -2, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+      GROUP BY 1, 2
+    )
+    SELECT
+      w.week,
+      COUNT_IF(c.retained) AS numerator,
+      COUNT(c.user_id) AS denominator,
+      COUNT_IF(c.retained)::float / NULLIF(COUNT(c.user_id), 0) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+
+noise:
+  type: binomial
+  min_denominator: 100
+  volume_unit: new people in the cohort
+  typical: 0.3
+
+example:
+  business: app
+  level: 0.31
+  volume: 8500
+  trend: 0.03
+
+drivers:
+  - id: identity
+    label: Identity and tracking
+    dropped:
+      check: Did returning people start appearing as new, for example after an SDK, login or identity change?
+      yes: New people jump and their retention falls from the same date, with no change in sign-ups.
+    spiked:
+      check: Did a tracking change stop counting one-time visitors as new people?
+      yes: Cohorts shrink from one date, mostly people with a single event, and retention rises with no product change.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Did the cohort's second week fall over a holiday?
+      yes: Cohorts whose days 7 to 14 overlap a holiday retain less, and the next cohort recovers.
+    spiked:
+      check: Did the cohort arrive in a high-intent season, such as the new year for a budgeting app?
+      yes: The same cohorts last year retained better too.
+  - id: platform
+    label: Platform and releases
+    breakdown: $os
+    feed: app-stores
+    dropped:
+      check: Did a release break something new people hit in their first days, on one platform?
+      yes: Retention falls for cohorts on one platform or app version only.
+    spiked:
+      check: Did a release fix a first-week problem on one platform?
+      yes: Retention rises for cohorts on that platform from the release date.
+  - id: acquisition-mix
+    label: Where new people came from
+    breakdown: utm_source
+    dropped:
+      check: Did more of the cohort come from a broad or low-intent source, such as a new paid campaign?
+      yes: One source grew its share of new people and retains far below the others.
+    spiked:
+      check: Did a low-retention source shrink, or a high-intent one such as referrals grow?
+      yes: The mix shifted toward sources that always retain better; each source's own rate is flat.
+  - id: onboarding
+    label: Onboarding and activation
+    metric: activation-rate
+    dropped:
+      check: Did fewer new people reach the first key action in their first days?
+      yes: Activation for the same cohorts falls, starting with a release or an onboarding test.
+    spiked:
+      check: Did an onboarding change get more people to the key action?
+      yes: Activation rose for the same cohorts and retention rose with it.
+  - id: reminders
+    label: First-week reminders
+    dropped:
+      check: Did the emails or pushes that bring new people back in their second week stop or get throttled?
+      yes: Returns from reminder opens in days 7 to 14 fall while other returns hold.
+    spiked:
+      check: Did a new reminder for the second week go live?
+      yes: Returns from reminder opens rise; check week 4 retention to see whether they stay.
+
+diagnose_order: [identity, calendar, platform, acquisition-mix, onboarding, reminders]
+
+related: [week-4-retention, activation-rate, onboarding-completion-rate, signups, resurrected-users]
+
+prose:
+  why_it_matters: >-
+    Week 1 retention is the first honest read of whether new people found what they came for, and
+    later weeks usually follow it: a cohort that keeps fewer people in its second week tends to
+    keep fewer for good. Because it is read per arrival cohort, it shows an onboarding or acquisition change within
+    three weeks. A drop from 31% to 27% on 8,500 new people a week is 340 people a week who would
+    otherwise have stayed.
+  pitfalls:
+    - Calendar-week retention, active in the week after the arrival week, gives a Sunday arrival a one-day gap and a Monday arrival seven. This spec measures from each person's own first event.
+    - Cohorts younger than three weeks haven't had their full window yet, and including them shows a false drop. Only mature cohorts are reported.
+    - Counting every first event as a new person includes bots and returning people whose old id wasn't recognised. Fix identity before reading retention.
+    - A low-intent campaign lowers the cohort's retention with no change in the product. Split by source before blaming onboarding.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

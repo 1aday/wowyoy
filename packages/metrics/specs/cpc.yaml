@@ -1,0 +1,120 @@
+id: cpc
+name: Cost per click
+aliases:
+  - Average CPC
+  - Avg CPC
+  - Cost per link click
+family: acquisition
+kind: currency
+polarity: down-is-good
+
+definition:
+  one_line: What the store paid, on average, for one ad click in the week, across every synced ad platform.
+  formula: Ad spend ÷ ad clicks
+
+events:
+  - name: ad_spend
+    description: One row per channel per day, synced from each ad platform's reporting API.
+    also_called: [Ad Spend, ad_performance, campaign_daily_stats]
+    properties:
+      - name: spend
+        description: Amount spent that day, in the store's reporting currency.
+      - name: clicks
+        description: Link clicks that day. Use link clicks, not all clicks, where the platform offers both.
+      - name: channel
+        description: The platform (google, meta, tiktok, microsoft, pinterest).
+      - name: campaign
+        description: The campaign name or id on that platform.
+
+numerator:
+  label: Ad spend
+  aggregate: sum
+  event: ad_spend
+  property: spend
+denominator:
+  label: Ad clicks
+  aggregate: sum
+  event: ad_spend
+  property: clicks
+
+noise:
+  type: process
+  min_denominator: 200
+  volume_unit: ad clicks a week
+  typical: 1.1
+
+example:
+  business: store
+  level: 1.25
+  volume: 240000
+  trend: 0.06
+
+drivers:
+  - id: sync
+    label: Click and spend sync
+    breakdown: channel
+    dropped:
+      check: Is a channel syncing all clicks instead of link clicks, or clicks without their spend?
+      yes: One channel's clicks jump while the sessions it sends hold, or its spend is missing for some days.
+    spiked:
+      check: Is a channel syncing spend without its clicks, or did it switch to link clicks only?
+      yes: One channel's clicks fall to near zero or change definition while its spend holds.
+  - id: cpm
+    label: Price of impressions
+    metric: cpm
+    feed: shopping
+    dropped:
+      check: Did impressions get cheaper across platforms?
+      yes: CPM falls by about as much as CPC, and click-through rate holds.
+    spiked:
+      check: Did impressions get more expensive, as they do in Q4 and around Black Friday?
+      yes: CPM rises by about as much as CPC, and click-through rate holds.
+  - id: ctr
+    label: Click-through rate
+    metric: ctr
+    dropped:
+      check: Did more people click each ad, from new creative or a stronger offer?
+      yes: Click-through rate rises by about as much as CPC falls, at a steady CPM.
+    spiked:
+      check: Did fewer people click, from tired creative or a weaker offer?
+      yes: Click-through rate falls by about as much as CPC rises, at a steady CPM.
+  - id: channel-mix
+    label: Channel mix
+    metric: ad-spend
+    breakdown: channel
+    dropped:
+      check: Did budget move toward cheap-click channels such as broad social or display?
+      yes: Each channel's CPC holds but the cheaper channels took a bigger share of spend.
+    spiked:
+      check: Did budget move toward expensive-click channels such as non-brand search or LinkedIn?
+      yes: Each channel's CPC holds but the expensive channels took a bigger share of spend.
+  - id: bidding
+    label: Bidding and competition
+    feed: ad-platforms
+    dropped:
+      check: Did a competitor leave the auction, or a bid cap or target start holding prices down?
+      yes: CPC falls on search campaigns while impression share holds or rises.
+    spiked:
+      check: Did a bid strategy change, a new competitor arrive, or a platform raise its floor prices?
+      yes: CPC rises on the campaigns that changed strategy, or on search terms where a new competitor appears.
+
+diagnose_order: [sync, cpm, ctr, channel-mix, bidding]
+
+related: [cpm, ctr, ad-spend, paid-sessions, paid-conversion-rate]
+
+prose:
+  why_it_matters: >-
+    CPC is what a visitor from an ad costs before they do anything, and it splits into two
+    numbers that move for different reasons: CPC = CPM ÷ (CTR × 1,000). At Northwind's
+    $1.25, with 240,000 clicks arriving as about 180,000 sessions that order at 2.1%, media costs
+    about $79 per paid order, so a 20% rise in CPC adds about $16 to every paid order unless
+    conversion rises with it.
+  pitfalls:
+    - Clicks are not visits. Some clicks never load the page or are never recorded; at Northwind 240,000 clicks become about 180,000 paid sessions, so cost per paid session is about $1.67, not $1.25.
+    - A blended CPC moves with the budget mix. A non-brand search click can cost several times a social click; split by channel before reading a change.
+    - A cheap click that never converts is expensive. Read CPC with paid conversion rate, never alone.
+    - Meta's "CPC (all)" divides by every click, including likes and profile taps. Use cost per link click to match this spec.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

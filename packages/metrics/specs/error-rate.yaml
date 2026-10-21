@@ -1,0 +1,121 @@
+id: error-rate
+name: Error rate
+aliases:
+  - Session error rate
+  - Exception rate
+  - Sessions with errors
+  - JavaScript error rate
+family: engagement
+kind: rate
+polarity: down-is-good
+
+definition:
+  one_line: The share of sessions in which the product raised at least one error, Monday to Sunday UTC.
+  formula: Sessions with at least one exception ÷ sessions
+
+events:
+  - name: $exception
+    description: An error the product raised and the SDK captured, one event per exception.
+    also_called: [Exception, error, app_crash]
+    properties:
+      - name: $exception_type
+        description: The error's type or class, for grouping.
+      - name: $session_id
+        description: The session it happened in; must match the session id on other events.
+  - name: "*"
+    description: Any event a person sends; its session id counts the sessions the rate divides by.
+    also_called: [All events, Any event]
+    properties:
+      - name: $browser
+        description: The browser, for splitting web sessions.
+      - name: $app_version
+        description: The app version, for splitting mobile sessions by release.
+
+numerator:
+  label: Sessions with an error
+  aggregate: unique_sessions
+  event: $exception
+denominator:
+  label: Sessions
+  aggregate: unique_sessions
+  event: "*"
+
+noise:
+  type: binomial
+  min_denominator: 500
+  volume_unit: sessions a week
+  typical: 0.018
+  reference_volumes: [2000, 10000, 50000, 200000]
+
+example:
+  business: app
+  level: 0.018
+  volume: 187000
+  trend: 0.15
+
+drivers:
+  - id: instrumentation
+    label: Error capture
+    dropped:
+      check: Did error reporting break, get sampled down, or get blocked on one platform?
+      yes: Exceptions fall to near zero on one platform, or the SDK version or sampling setting changed the day it fell.
+    spiked:
+      check: Did error capture get wider, from a new SDK, autocapture turned on or a new platform reporting?
+      yes: Errors rise from the day capture changed, mostly types that existed before but weren't recorded.
+  - id: third-party
+    label: Providers and third-party scripts
+    feed: cloudflare
+    dropped:
+      check: Did a provider incident from last week clear?
+      yes: Network and script-load errors fall back to their usual level after the incident ended.
+    spiked:
+      check: Did a CDN, API provider or third-party script fail?
+      yes: Network and script-load errors rise across app versions at the time of a provider incident.
+  - id: release
+    label: Releases
+    breakdown: $app_version
+    feed: app-stores
+    dropped:
+      check: Did a fix ship, and are people updating to it?
+      yes: The top error falls as the fixed version's share of sessions rises.
+    spiked:
+      check: Did a release ship this week, and are the new errors from its version?
+      yes: One error type appears on the new version only, starting the day it rolled out.
+  - id: browser
+    label: Browser and device
+    breakdown: $browser
+    dropped:
+      check: Did a browser update fix a compatibility problem?
+      yes: One browser's error rate falls on its release date while the others hold.
+    spiked:
+      check: Is it one browser or browser version, for example after a browser update?
+      yes: One browser's error rate jumps on its release date while the others hold.
+  - id: session-mix
+    label: What counts as a session
+    metric: sessions
+    dropped:
+      check: Did a wave of short sessions from a campaign or bots inflate the denominator?
+      yes: Sessions jump from one source with very few events each, while errors per real session hold.
+    spiked:
+      check: Did bots or a crawler start running sessions that hit errors?
+      yes: Error sessions concentrate on one user agent or country with no real usage.
+
+diagnose_order: [instrumentation, third-party, release, browser, session-mix]
+
+related: [sessions-per-user, dau, week-1-retention, bounce-rate, conversion-rate]
+
+prose:
+  why_it_matters: >-
+    Error rate counts sessions that hit at least one exception, which is closer to what people
+    feel than a raw error count: a broken page that throws fifty errors is one bad session. It
+    is the fastest quality signal after a release. At Pocketful's 187,000 sessions a week (52,000 weekly actives at 3.6 each) and 1.8%, chance
+    moves it by less than 0.1 point, so almost any visible change has a cause.
+  pitfalls:
+    - Counting errors instead of sessions with errors lets one looping page dominate the number. This spec counts each session once.
+    - Error capture changes with SDK versions, sampling and ad blockers. A jump on the day capture changed is a measurement change, not a quality change.
+    - Browser extensions, third-party scripts and bots throw errors you can't fix. Filter them, or the rate moves with things outside the product.
+    - Exceptions without the session id used by other events never reach the numerator. Check that both carry the same $session_id.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

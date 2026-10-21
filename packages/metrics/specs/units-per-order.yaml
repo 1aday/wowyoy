@@ -1,0 +1,123 @@
+id: units-per-order
+name: Units per order
+aliases:
+  - Units per transaction
+  - UPT
+  - Items per order
+  - Average basket size
+  - Basket size
+family: revenue
+kind: ratio
+polarity: up-is-good
+
+definition:
+  one_line: The average number of items in a paid order, the basket half of average order value.
+  formula: Items sold ÷ paid orders
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: item_count
+        description: Total units in the order, summing each line's quantity.
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+      - name: is_first_order
+        description: True when the store has no earlier order from this customer, from its own customer records.
+
+numerator:
+  label: Items sold
+  aggregate: sum
+  event: order_completed
+  property: item_count
+denominator:
+  label: Paid orders
+  aggregate: count
+  event: order_completed
+
+noise:
+  type: mean
+  cv: 0.75
+  min_denominator: 50
+  volume_unit: orders a week
+  typical: 1.8
+
+example:
+  business: store
+  level: 1.86
+  volume: 13300
+  trend: 0.05
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Did item_count switch from units to line items, or stop counting bundle components?
+      yes: Units per order step down on one release day while order value holds.
+    spiked:
+      check: Did item_count start counting free gifts, samples or shipping protection as items?
+      yes: Units step up on one day, and orders carry $0 lines they didn't before.
+  - id: calendar
+    label: Shopping calendar
+    feed: shopping
+    dropped:
+      check: Was last week a gifting or stock-up week, when baskets run larger?
+      yes: The same week last year shows the same dip once aligned on the event.
+    spiked:
+      check: Is this a gifting or stock-up week?
+      yes: The same week last year shows the same rise once aligned on the event.
+  - id: offers
+    label: Bundles and thresholds
+    dropped:
+      check: Did a bundle, a multi-buy offer or a free-shipping threshold end or fall?
+      yes: The share of one-item orders rises from the day the offer changed.
+    spiked:
+      check: Did a buy-two offer, a bundle or a higher free-shipping threshold go live?
+      yes: The share of one-item orders falls from the launch day.
+  - id: cross-sell
+    label: Cart recommendations
+    dropped:
+      check: Did a cart upsell, recommendations widget or frequently-bought-together block break or get removed?
+      yes: Adds from recommendations fall to near zero from one day.
+    spiked:
+      check: Did a new cross-sell launch, and are its adds paid items rather than free gifts?
+      yes: Adds from recommendations rise and the extra items carry a price.
+  - id: product-mix
+    label: Product mix
+    dropped:
+      check: Did a single-item product, such as a high-priced hero or a new launch, take a larger share of orders?
+      yes: Orders for that product grow while other baskets hold their size.
+    spiked:
+      check: Did consumables, refills or small accessories that people buy several of gain share?
+      yes: Orders containing those products grow while other baskets hold their size.
+  - id: first-orders
+    label: First vs repeat orders
+    breakdown: is_first_order
+    dropped:
+      check: Did first orders take a larger share of orders, and do they hold fewer items than repeat orders?
+      yes: First orders average fewer items, each group's average holds, and only the mix moved.
+    spiked:
+      check: Did repeat customers, who know what they want, take a larger share?
+      yes: The mix moved toward repeat orders while each group's average held.
+
+diagnose_order: [tracking, calendar, offers, cross-sell, product-mix, first-orders]
+
+related: [aov, gross-sales, orders, discount-rate, add-to-cart-rate]
+
+prose:
+  why_it_matters: >-
+    Units per order is the basket half of average order value; AOV is units per order × the
+    average price per unit. Bundles, free-shipping thresholds and cross-sells act on it
+    directly. Going from 1.8 to 1.9 at Northwind is about 1,330 more items a week with no new
+    customers.
+  pitfalls:
+    - Decide whether item_count counts units or line items and keep it; switching changes every multi-quantity order.
+    - Free gifts, samples and shipping protection count as items unless excluded, so a gift-with-purchase lifts units with no extra sales.
+    - A bundle sold as one product counts as one item. Splitting a bundle into its parts in the catalogue changes units per order without changing what shoppers bought.
+    - Basket size means units in some reports and order value in others. This page uses units; AOV is the value.
+    - An average hides the shape. A move from 1.8 to 1.9 usually means fewer one-item orders, not bigger baskets everywhere; check the share of one-item orders.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

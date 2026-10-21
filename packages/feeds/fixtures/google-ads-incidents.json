@@ -1,0 +1,47 @@
+[
+ {
+  "id": "eG7uzoaofpNp6xaWURjp",
+  "begin": "2026-10-08T10:31:00+00:00",
+  "end": "2026-10-08T20:00:00+00:00",
+  "external_desc": "We're investigating reports of an issue with AdMob. We will provide more information shortly. The affected users are able to access AdMob, but are seeing error messages, high latency, and/or other unexpected behavior.",
+  "status_impact": "SERVICE_DISRUPTION",
+  "severity": "medium",
+  "affected_products": [
+   {
+    "title": " AdMob",
+    "id": "dcPJkdGcHpXEwoueeXcd"
+   }
+  ],
+  "uri": "incidents/eG7uzoaofpNp6xaWURjp"
+ },
+ {
+  "id": "Y1kwnZGL6soz3SvTepqy",
+  "begin": "2026-10-03T18:00:00+00:00",
+  "end": "2026-10-04T00:57:00+00:00",
+  "external_desc": "We're investigating reports of an issue with Google Ad Manager. We will provide more information shortly. The affected users are able to access Google Ad Manager, but may not have access to the most recent data.",
+  "status_impact": "SERVICE_INFORMATION",
+  "severity": "low",
+  "affected_products": [
+   {
+    "title": " Google Ad Manager",
+    "id": "jfmvrbQcKd2YLioeQbVF"
+   }
+  ],
+  "uri": "incidents/Y1kwnZGL6soz3SvTepqy"
+ },
+ {
+  "id": "zgBxaA9uCvCforctpRHW",
+  "begin": "2026-09-29T00:41:00+00:00",
+  "end": "2026-09-29T02:52:56+00:00",
+  "external_desc": "We're investigating reports of an issue with Google Analytics. We will provide more information shortly.",
+  "status_impact": "SERVICE_OUTAGE",
+  "severity": "high",
+  "affected_products": [
+   {
+    "title": "Google Analytics",
+    "id": "D1n9GU84oshWBHadM3YR"
+   }
+  ],
+  "uri": "incidents/zgBxaA9uCvCforctpRHW"
+ }
+]

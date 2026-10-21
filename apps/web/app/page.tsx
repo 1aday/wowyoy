@@ -2,11 +2,11 @@ import Link from "next/link"
 import { ArrowRight } from "lucide-react"
 import { formatWeekRange, verdict, yearInMondays } from "@workspace/metrics"
 import { Button } from "@workspace/ui/components/button"
-import { Logo } from "@workspace/ui/brand/logo"
 import { Prompt } from "@workspace/ui/brand/prompt"
 import { Verdict } from "@workspace/ui/brand/verdict"
 import { cn } from "@workspace/ui/lib/utils"
 import { LandingPulse } from "@/components/landing-pulse"
+import { SiteFooter } from "@/components/site-footer"
 import { SiteHeader } from "@/components/site-header"
 import { sampleRows } from "@/lib/sample"
 import { readWorkspace } from "@/lib/session"
@@ -28,6 +28,33 @@ const steps = [
     body: "Each metric against last week, the last four, the quarter and last year. Every move is judged against its own noise: a filled pill means it's real.",
   },
 ]
+
+const free = [
+  {
+    href: "/m",
+    command: "define",
+    flags: "--metric checkout-conversion",
+    title: "The Standard",
+    body: "Open definitions for 80 growth metrics, each with its query in HogQL, Postgres, BigQuery and Snowflake and the move that counts as noise at your volume.",
+    cta: "Read the Standard",
+  },
+  {
+    href: "/gh",
+    command: "repo_pulse",
+    flags: "--weekly",
+    title: "Repo Pulse",
+    body: "Stars, forks, issues and merged PRs for any public GitHub repo, week by week, with every move judged real or noise. Plus a README badge.",
+    cta: "Check a repo",
+  },
+  {
+    href: "/w",
+    command: "ledger",
+    flags: "--week latest",
+    title: "The Monday Ledger",
+    body: "One page per week: the holidays, outages and search updates that moved everyone's numbers, so you can rule out the world before blaming your funnel.",
+    cta: "Read this week",
+  },
+] as const
 
 export default async function Home() {
   const rows = sampleRows()
@@ -124,24 +151,25 @@ export default async function Home() {
               </span>
             </div>
           </Link>
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            {free.map((f) => (
+              <Link
+                key={f.href}
+                href={f.href}
+                className="group flex flex-col rounded-xl border border-border bg-card p-6 transition-colors duration-[80ms] hover:bg-accent"
+              >
+                <Prompt command={f.command} flags={f.flags} className="mb-4" />
+                <h3 className="text-[17px] font-medium">{f.title}</h3>
+                <p className="mt-2 flex-1 text-[14.5px] leading-relaxed text-muted-foreground">{f.body}</p>
+                <span className="mt-5 inline-flex items-center gap-1 text-[14px] font-medium">
+                  {f.cta} <ArrowRight className="size-4 transition-transform duration-[160ms] group-hover:translate-x-0.5" strokeWidth={1.5} />
+                </span>
+              </Link>
+            ))}
+          </div>
         </section>
       </main>
-      <footer className="border-t border-border">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-8 font-mono text-[12px] text-muted-foreground sm:px-8">
-          <Logo className="text-[16px]" cursor={false} />
-          <div className="flex gap-5">
-            <Link href="/fluke" className="hover:text-foreground">
-              Fluke Test
-            </Link>
-            <Link href="/demo" className="hover:text-foreground">
-              Sample
-            </Link>
-            <a href="https://github.com/1aday/wowyoy" className="hover:text-foreground">
-              GitHub
-            </a>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </>
   )
 }

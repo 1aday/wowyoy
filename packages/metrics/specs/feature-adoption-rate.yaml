@@ -1,0 +1,120 @@
+id: feature-adoption-rate
+name: Feature adoption rate
+aliases:
+  - Feature adoption
+  - Feature usage rate
+  - Feature engagement rate
+family: engagement
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of this week's active people who used a given feature at least once.
+  formula: Distinct people with feature_used for the feature ÷ distinct active people, in the same week; set the feature filter to yours
+
+events:
+  - name: feature_used
+    description: A person used a feature, sent when the action completes, not when its screen opens.
+    also_called: [Feature Used, feature_clicked, feature_engaged]
+    properties:
+      - name: feature
+        description: The feature's stable name. Replace your_feature in the filter with it.
+  - name: "*"
+    description: Any event a person sends; the active people the rate divides by.
+    also_called: [All events, Any event, Active event]
+    properties:
+      - name: $os
+        description: The operating system, for splitting by platform.
+      - name: plan
+        description: The person's plan, for splitting by access.
+
+numerator:
+  label: People who used the feature
+  aggregate: unique_users
+  event: feature_used
+  where:
+    - property: feature
+      op: eq
+      value: your_feature
+denominator:
+  label: Active people
+  aggregate: unique_users
+  event: "*"
+
+noise:
+  type: binomial
+  min_denominator: 200
+  volume_unit: weekly active users
+  typical: 0.24
+
+example:
+  business: app
+  level: 0.24
+  volume: 52000
+  trend: 0.15
+
+drivers:
+  - id: tracking
+    label: The feature's event
+    dropped:
+      check: Did the event stop firing, get renamed, or change its feature value on one platform?
+      yes: feature_used for this feature drops to near zero on one platform or app version.
+    spiked:
+      check: Does the event now fire on view instead of on use, or twice per use?
+      yes: Uses per person jump with no change in people, or the event fires as soon as the screen opens.
+  - id: entry-point
+    label: Where people find it
+    dropped:
+      check: Did a release move, hide or remove the way in?
+      yes: Adoption falls from the release date on the platform that shipped it.
+    spiked:
+      check: Did a launch, an announcement or a new placement put it in front of more people?
+      yes: Adoption jumps from the launch day; watch whether repeat use follows or it fades within a week.
+  - id: platform
+    label: Platform and releases
+    breakdown: $os
+    feed: app-stores
+    dropped:
+      check: Is the fall on one platform only?
+      yes: One platform falls from a release date while the others hold.
+    spiked:
+      check: Did the feature just reach a platform that lacked it?
+      yes: Adoption on the new platform climbs from zero while the others hold.
+  - id: user-mix
+    label: Who is active
+    metric: wau
+    dropped:
+      check: Did many new or casual people join the active base?
+      yes: WAU rises from new people who haven't reached the feature yet; adoption among returning people holds.
+    spiked:
+      check: Did casual people drop out of the active base?
+      yes: WAU falls while the number of people using the feature holds, so the rate rises with no new adoption.
+  - id: plan-gating
+    label: Plan access
+    breakdown: plan
+    dropped:
+      check: Did the feature move behind a paywall or a plan limit?
+      yes: Adoption falls only on free or lower plans.
+    spiked:
+      check: Did the feature become available on more plans?
+      yes: Adoption rises on the plans that just gained it.
+
+diagnose_order: [tracking, entry-point, platform, user-mix, plan-gating]
+
+related: [wau, activation-rate, stickiness, week-4-retention, sessions-per-user]
+
+prose:
+  why_it_matters: >-
+    Feature adoption shows whether what you built is being found and used by the people who were
+    there to use it. It is the first number to read after a launch, and it predicts retention
+    when the feature is the reason people stay. At 52,000 weekly actives and 24% adoption, chance
+    moves the rate by only about half a point, so most visible moves have a cause.
+  pitfalls:
+    - Divide by active people, not all accounts or sign-ups, or growth in dormant accounts makes adoption look like it is falling.
+    - Send the event on use, not on view. An event that fires when the screen opens measures navigation, not adoption.
+    - A launch week measures curiosity. Judge a new feature on repeat use in the weeks after.
+    - Track one feature per series. Averaging across features hides which one moved.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

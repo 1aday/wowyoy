@@ -1,0 +1,26 @@
+{
+  "name": "@workspace/compiler",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@workspace/feeds": "workspace:*",
+    "@workspace/metrics": "workspace:*"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
+    "@types/node": "^20",
+    "@workspace/typescript-config": "workspace:*",
+    "node-sql-parser": "^5.4.0",
+    "typescript": "^5",
+    "vitest": "^4"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  }
+}

@@ -1,0 +1,241 @@
+id: mrr
+name: Monthly recurring revenue
+aliases:
+  - MRR
+  - Monthly recurring revenue (MRR)
+family: subscription
+kind: currency
+polarity: up-is-good
+
+definition:
+  one_line: The monthly value of every paying subscription at the end of the week, with annual plans divided by twelve.
+  formula: Sum of active and past-due subscriptions' monthly amounts, measured Sunday 23:59 UTC
+
+events:
+  - name: subscription_updated
+    description: Any change to a subscription's plan, quantity, discount or status, with its new monthly amount.
+    also_called: [customer.subscription.updated, Subscription Updated, subscription_changed]
+    properties:
+      - name: subscription_id
+        description: The billing system's subscription id.
+      - name: mrr
+        description: The subscription's monthly amount after the change, after discounts, before tax.
+      - name: status
+        description: active, trialing, past_due or canceled.
+
+numerator:
+  label: MRR at week end
+  aggregate: sum
+  event: subscription_updated
+  property: mrr
+
+queries:
+  hogql: |-
+    -- MRR at the end of each week: the monthly amounts of every active or past-due subscription, each at its latest subscription_updated before Monday 00:00 UTC. Last 26 complete weeks, oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT w.week AS week, coalesce(m.mrr, 0) AS value
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, sum(tupleElement(latest, 1)) AS mrr
+      FROM (
+        SELECT s.week AS week, u.subscription_id AS subscription_id, argMax(tuple(u.mrr, u.status), u.ts) AS latest
+        FROM (
+          SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+        ) AS s
+        CROSS JOIN (
+          SELECT
+            toString(properties.subscription_id) AS subscription_id,
+            toTimeZone(timestamp, 'UTC') AS ts,
+            toFloat(properties.mrr) AS mrr,
+            toString(properties.status) AS status
+          FROM events
+          WHERE event = 'subscription_updated'
+            AND properties.subscription_id IS NOT NULL
+            AND toMonday(toTimeZone(timestamp, 'UTC')) < toMonday(toTimeZone(now(), 'UTC'))
+        ) AS u
+        WHERE toMonday(u.ts) <= s.week
+        GROUP BY week, subscription_id
+      )
+      WHERE tupleElement(latest, 2) IN ('active', 'past_due')
+      GROUP BY week
+    ) AS m ON m.week = w.week
+    ORDER BY week
+  postgres: |-
+    -- MRR at the end of each week: the monthly amounts of every active or past-due subscription, each at its latest subscription_updated before Monday 00:00 UTC. Last 26 complete weeks, oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week, g.week + interval '1 week' AS week_end
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    updates AS (
+      SELECT
+        properties->>'subscription_id' AS subscription_id,
+        occurred_at AT TIME ZONE 'UTC' AS ts,
+        CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END AS mrr,
+        properties->>'status' AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND properties->>'subscription_id' IS NOT NULL
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+    ),
+    latest AS (
+      SELECT DISTINCT ON (w.week, u.subscription_id) w.week, u.mrr, u.status
+      FROM weeks AS w
+      JOIN updates AS u ON u.ts < w.week_end
+      ORDER BY w.week, u.subscription_id, u.ts DESC
+    ),
+    mrr AS (
+      SELECT week, sum(mrr) AS mrr
+      FROM latest
+      WHERE status IN ('active', 'past_due')
+      GROUP BY week
+    )
+    SELECT w.week, coalesce(m.mrr, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN mrr AS m ON m.week = w.week
+    ORDER BY w.week;
+  bigquery: |-
+    -- MRR at the end of each week: the monthly amounts of every active or past-due subscription, each at its latest subscription_updated before Monday 00:00 UTC. Last 26 complete weeks, oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    updates AS (
+      SELECT
+        JSON_VALUE(properties, '$.subscription_id') AS subscription_id,
+        occurred_at,
+        SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64) AS mrr,
+        JSON_VALUE(properties, '$.status') AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND JSON_VALUE(properties, '$.subscription_id') IS NOT NULL
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+    ),
+    latest AS (
+      SELECT w.week, u.mrr, u.status
+      FROM weeks AS w
+      CROSS JOIN updates AS u
+      WHERE u.occurred_at < TIMESTAMP(DATE_ADD(w.week, INTERVAL 1 WEEK))
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY w.week, u.subscription_id ORDER BY u.occurred_at DESC) = 1
+    ),
+    mrr AS (
+      SELECT week, SUM(mrr) AS mrr
+      FROM latest
+      WHERE status IN ('active', 'past_due')
+      GROUP BY week
+    )
+    SELECT w.week, COALESCE(m.mrr, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN mrr AS m ON m.week = w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- MRR at the end of each week: the monthly amounts of every active or past-due subscription, each at its latest subscription_updated before Monday 00:00 UTC. Last 26 complete weeks, oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    updates AS (
+      SELECT
+        properties:"subscription_id"::string AS subscription_id,
+        occurred_at,
+        TRY_TO_DOUBLE(properties:"mrr"::string) AS mrr,
+        properties:"status"::string AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND properties:"subscription_id"::string IS NOT NULL
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+    ),
+    latest AS (
+      SELECT w.week, u.mrr, u.status
+      FROM weeks AS w
+      JOIN updates AS u ON u.occurred_at < DATEADD(week, 1, w.week)
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY w.week, u.subscription_id ORDER BY u.occurred_at DESC) = 1
+    ),
+    mrr AS (
+      SELECT week, SUM(mrr) AS mrr
+      FROM latest
+      WHERE status IN ('active', 'past_due')
+      GROUP BY week
+    )
+    SELECT w.week, COALESCE(m.mrr, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN mrr AS m ON m.week = w.week
+    ORDER BY w.week;
+
+noise:
+  type: process
+  min_denominator: 20
+  volume_unit: active subscriptions
+  typical: 180000
+
+example:
+  business: saas
+  level: 240000
+  volume: 1900
+  trend: 0.5
+
+drivers:
+  - id: new-mrr
+    label: New MRR
+    metric: new-mrr
+    dropped:
+      check: Did fewer new customers start paying, or start on smaller plans?
+      yes: New MRR falls below its usual range while churn holds.
+    spiked:
+      check: Did a launch, a sales push or one large deal add new MRR?
+      yes: New MRR jumps; check whether one customer accounts for most of it.
+  - id: expansion
+    label: Expansion
+    metric: expansion-mrr
+    dropped:
+      check: Did upgrades and seat additions slow?
+      yes: Expansion MRR falls while new and churned MRR hold.
+    spiked:
+      check: Did a price change or a usage limit push customers to upgrade?
+      yes: Expansion MRR jumps in the week the change shipped.
+  - id: churn
+    label: Churned MRR
+    metric: churned-mrr
+    feed: stripe
+    dropped:
+      check: Did cancellations or failed renewals rise?
+      yes: Churned MRR rises; failed payments or one large account explain most of it.
+    spiked:
+      check: Did churn fall unusually low, or did failed payments recover?
+      yes: Churned MRR falls and recovered dunning payments appear.
+  - id: billing-calendar
+    label: Billing calendar
+    dropped:
+      check: Did a cohort of annual plans come up for renewal this week?
+      yes: Cancellations cluster on renewal dates one year after a big signup month.
+    spiked:
+      check: Is a migration or a currency revaluation changing amounts without customers acting?
+      yes: Many subscriptions change amount on the same day with no plan change.
+
+diagnose_order: [billing-calendar, churn, new-mrr, expansion]
+
+related: [new-mrr, expansion-mrr, churned-mrr, net-new-mrr, arpa]
+
+prose:
+  why_it_matters: >-
+    MRR is the stock that every other subscription number flows into: new and expansion MRR
+    add to it, churn and contraction take from it. Because it is a stock, it barely moves week
+    to week, which is exactly why a small move matters. Read its flows to see why it moved;
+    read MRR itself to see whether the business is growing.
+  pitfalls:
+    - Counting trials as MRR inflates it until they lapse. Count only subscriptions that bill; past-due ones stay in until they are canceled, so a wave of failed payments shows up weeks later.
+    - Annual plans divided by twelve smooth revenue; booking them in full the month they are paid makes MRR spike and fall back.
+    - Discounts and coupons belong in MRR at the discounted amount, or MRR overstates what customers pay.
+    - A week with a currency revaluation or a price migration moves MRR with no change in customers. Note it on the week.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

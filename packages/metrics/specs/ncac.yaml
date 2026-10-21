@@ -1,0 +1,136 @@
+id: ncac
+name: New customer acquisition cost
+aliases:
+  - nCAC
+  - NCPA
+  - New customer CPA
+  - Cost per new customer
+family: acquisition
+catalog_id: ncac
+kind: currency
+polarity: down-is-good
+
+definition:
+  one_line: Ad spend in the week divided by the customers who placed their first ever order that week.
+  formula: Ad spend ÷ first orders
+
+events:
+  - name: ad_spend
+    description: One row per channel per day, synced from each ad platform's reporting API.
+    also_called: [Ad Spend, ad_performance, campaign_daily_stats]
+    properties:
+      - name: spend
+        description: Amount spent that day, in the store's reporting currency.
+      - name: channel
+        description: The platform (google, meta, tiktok, microsoft, pinterest).
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: is_first_order
+        description: True when this is the customer's first ever paid order, by email or customer id, across guest and account checkouts.
+      - name: customer_id
+        description: The store's customer id, stable across orders.
+
+numerator:
+  label: Ad spend
+  aggregate: sum
+  event: ad_spend
+  property: spend
+denominator:
+  label: First orders
+  aggregate: count
+  event: order_completed
+  where:
+    - property: is_first_order
+      op: eq
+      value: true
+
+noise:
+  type: process
+  min_denominator: 20
+  volume_unit: new customers a week
+  typical: 55
+
+example:
+  business: store
+  level: 37
+  volume: 8100
+  trend: 0.06
+
+drivers:
+  - id: data
+    label: Spend and first-order data
+    dropped:
+      check: Is spend missing for a channel, or are returning customers being flagged as first orders?
+      yes: One channel's spend has gaps, or first orders jump while total orders hold, often after a platform or checkout migration.
+    spiked:
+      check: Is spend synced twice, or did a change stop first orders being flagged?
+      yes: One channel's spend doubles for a day, or first orders fall to near zero while total orders hold.
+  - id: calendar
+    label: Calendar
+    feed: shopping
+    dropped:
+      check: Is this a sale or gifting week that brings in first-time buyers at the same spend?
+      yes: First orders jump in the event week and the same week last year shows the same fall in nCAC.
+    spiked:
+      check: Did a sale end, or is spend rising ahead of an event before buyers arrive?
+      yes: The same weeks last year show the same rise once aligned on the event.
+  - id: new-customers
+    label: New customers
+    metric: new-customers
+    dropped:
+      check: Did more first-time customers order at steady spend?
+      yes: New customers rise by about as much as nCAC falls.
+    spiked:
+      check: Did fewer first-time customers order at steady spend?
+      yes: New customers fall by about as much as nCAC rises; check paid conversion and traffic next.
+  - id: spend
+    label: Ad spend
+    metric: ad-spend
+    feed: ad-platforms
+    dropped:
+      check: Did spend fall, cutting the least efficient campaigns first?
+      yes: Spend falls more than new customers do.
+    spiked:
+      check: Did a budget increase or a new prospecting campaign add spend faster than customers?
+      yes: Spend rises on one channel while new customers grow less; scaling usually raises nCAC.
+  - id: cpm
+    label: Price of attention
+    metric: cpm
+    dropped:
+      check: Did impressions get cheaper across platforms?
+      yes: CPM falls by about as much as nCAC, while click-through and conversion hold.
+    spiked:
+      check: Did impressions get more expensive, as they do in Q4?
+      yes: CPM rises by about as much as nCAC, while click-through and conversion hold.
+  - id: paid-conversion
+    label: Paid conversion rate
+    metric: paid-conversion-rate
+    dropped:
+      check: Did more paid visits turn into first orders?
+      yes: Paid conversion rises while CPC holds.
+    spiked:
+      check: Did fewer paid visits order, from a landing page, offer, stock or checkout problem?
+      yes: Paid conversion falls while CPC holds.
+
+diagnose_order: [data, calendar, new-customers, spend, cpm, paid-conversion]
+
+related: [blended-cac, mer, ad-spend, new-customers, ltv-to-cac, cpm]
+
+prose:
+  why_it_matters: >-
+    nCAC is the price of growth for a store: what the ads cost for each customer who had never
+    bought before. Returning customers are left out of the denominator, so it can't be flattered
+    by a loyal base the way MER can. At Northwind's $37 per new customer, a first order of about
+    $95 at 58% gross margin earns about $55 of gross profit, so the first order alone pays the ad
+    back with about $18 to spare.
+  pitfalls:
+    - Ad spend divided by all orders is cost per order, not nCAC. At Northwind, where about 39% of orders are repeat orders, cost per order is about $23 against an nCAC of $37.
+    - All new customers are in the denominator, including those from organic search, email signups and word of mouth. A week with a press mention lowers nCAC without the ads doing anything.
+    - First orders need one customer identity across guest and account checkouts. Matching by email misses people who buy again with a different address and makes them new twice.
+    - Spend in one week buys customers over the next several. Weekly nCAC swings when budgets change fast; read a four-week view before cutting a channel.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

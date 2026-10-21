@@ -1,0 +1,122 @@
+id: checkout-start-rate
+name: Checkout start rate
+aliases:
+  - Checkout initiation rate
+  - Cart to checkout rate
+  - Reached checkout rate
+family: conversion
+catalog_id: checkout_start_rate
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of sessions with a cart that went on to start checkout, the step where a cart becomes a decision to buy.
+  formula: Sessions that started checkout ÷ sessions that added to cart
+
+events:
+  - name: product_added
+    description: An item added to the cart from any button, confirmed by the cart, not the click.
+    also_called: [add_to_cart, Product Added, product_added_to_cart]
+    properties:
+      - name: product_id
+        description: The product added.
+  - name: checkout_started
+    description: The first checkout step rendered, before shipping or payment details.
+    also_called: [begin_checkout, Checkout Started, checkout_initiated]
+    properties:
+      - name: checkout_id
+        description: One id per checkout attempt, so reloads don't count twice.
+
+numerator:
+  label: Sessions that started checkout
+  aggregate: unique_sessions
+  event: checkout_started
+denominator:
+  label: Sessions that added to cart
+  aggregate: unique_sessions
+  event: product_added
+
+noise:
+  type: binomial
+  min_denominator: 100
+  volume_unit: carts a week
+  typical: 0.5
+  reference_volumes: [500, 2000, 10000, 40000]
+
+example:
+  business: store
+  level: 0.52
+  volume: 40000
+  trend: 0.01
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Did a checkout app, domain or express-pay change stop checkout_started firing for some shoppers?
+      yes: Orders hold while checkout starts fall, often for one wallet or one device.
+    spiked:
+      check: Is checkout_started firing twice, or when the cart drawer opens rather than when checkout loads?
+      yes: Checkout starts rise while orders don't, or starts per session jump on a release day.
+  - id: calendar
+    label: Sale calendar
+    feed: shopping
+    dropped:
+      check: Is it the week before a sale, when shoppers park items in the cart and wait?
+      yes: Carts rise while checkout starts hold, and the same week last year shows the same dip.
+    spiked:
+      check: Is this a sale or holiday week, when parked carts move to checkout?
+      yes: The same week last year shows the same jump once aligned on the event.
+  - id: cart-intent
+    label: How easily people add to cart
+    metric: add-to-cart-rate
+    dropped:
+      check: Did add-to-cart rate jump from looser intent, such as a quick-add launch or a free gift for adding?
+      yes: Carts rise while checkout starts hold, so the rate falls with no loss of orders.
+    spiked:
+      check: Did add-to-cart rate fall, leaving only the most committed carts?
+      yes: Carts fall while checkout starts hold; check orders before celebrating.
+  - id: cart-costs
+    label: Costs shown in the cart
+    dropped:
+      check: Did the cart start showing shipping costs, a minimum order or a higher free-shipping threshold?
+      yes: The drop starts on the day the cart message changed, on every device.
+    spiked:
+      check: Did a free-shipping offer or a lower threshold go live in the cart?
+      yes: The rise starts on the launch day and orders follow.
+  - id: express-checkout
+    label: Express and wallet buttons
+    dropped:
+      check: Did Shop Pay, Apple Pay or PayPal buttons disappear from the cart or move below the fold?
+      yes: Wallet checkouts fall while card checkouts hold, from the day of a theme or app change.
+    spiked:
+      check: Did express buttons start sending shoppers from product pages straight to checkout?
+      yes: Sessions start checkout without an add-to-cart event, so the rate rises with no change in carts.
+  - id: device-split
+    label: Mobile vs desktop
+    breakdown: $device_type
+    dropped:
+      check: Is the drop on one device type only, such as a checkout button hidden on small screens?
+      yes: Mobile falls several points while desktop is flat, starting on a release day.
+    spiked:
+      check: Is the rise on one device type only?
+      yes: One device jumps after a release; confirm it isn't a tracking change before crediting it.
+
+diagnose_order: [tracking, calendar, cart-intent, cart-costs, express-checkout, device-split]
+
+related: [add-to-cart-rate, checkout-conversion, cart-abandonment-rate, conversion-rate, promo-code-usage-rate]
+
+prose:
+  why_it_matters: >-
+    Checkout start rate shows whether a cart turns into a decision to buy. It is where surprise
+    costs, a cart that buries its button or a missing wallet show up, well before payment. At
+    Northwind, with about 40,000 carts a week, one point is 400 checkouts and roughly 250 orders.
+  pitfalls:
+    - Express buttons on product pages skip the cart, so those sessions start checkout without an add-to-cart and lift the rate. Track them as an add or read them separately.
+    - Cart drawers make views of the cart page meaningless; this spec uses the add-to-cart and checkout events, never page views of /cart.
+    - Counting checkout starts instead of sessions double counts shoppers who go back to edit the cart and start again. This spec counts sessions on both sides.
+    - A rise in add-to-cart rate often lowers this rate with no harm done. Read the two together and judge them by orders.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

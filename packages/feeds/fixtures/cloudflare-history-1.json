@@ -1,0 +1,138 @@
+{
+ "start_time": "2026-08-01T00:00:00Z",
+ "end_time": "2026-10-31T23:59:59Z",
+ "months": [
+  {
+   "name": "October",
+   "year": 2026,
+   "incidents": [
+    {
+     "code": "wzfl223jskfg",
+     "name": "[Scheduled] BNA (Nashville) on 2026-10-21",
+     "impact": "maintenance",
+     "timestamp": "Oct <var data-var='date'>21</var>, <var data-var='time'>02:00</var> UTC"
+    },
+    {
+     "code": "n232t261lxg4",
+     "name": "[Scheduled] BOM (Mumbai) on 2026-10-20",
+     "impact": "maintenance",
+     "timestamp": "Oct <var data-var='date'>20</var>, <var data-var='time'>21:00</var> - Oct <var data-var='date'>21</var>, <var data-var='time'>01:01</var> UTC"
+    },
+    {
+     "code": "qwx5xtl8mv7d",
+     "name": "Cloudflare Fedramp Dashboard and Access",
+     "impact": "major",
+     "timestamp": "Oct <var data-var='date'>16</var>, <var data-var='time'>17:56</var> - <var data-var='time'>19:09</var> UTC"
+    },
+    {
+     "code": "wpq9v3pzhcwl",
+     "name": "DNS Update Delays",
+     "impact": "minor",
+     "timestamp": "Oct <var data-var='date'>15</var>, <var data-var='time'>15:33</var> - <var data-var='time'>18:19</var> UTC"
+    },
+    {
+     "code": "9yl8m5h16g1z",
+     "name": "Increased Errors for Durable Objects",
+     "impact": "minor",
+     "timestamp": "Oct <var data-var='date'>15</var>, <var data-var='time'>15:37</var> - <var data-var='time'>18:00</var> UTC"
+    },
+    {
+     "code": "wvzqdm21spz0",
+     "name": "Increased Errors for Durable Objects and Downstream Services in Western Europe",
+     "impact": "minor",
+     "timestamp": "Oct <var data-var='date'>15</var>, <var data-var='time'>09:18</var> - <var data-var='time'>10:02</var> UTC"
+    },
+    {
+     "code": "2xnmsnv8yv5x",
+     "name": "Cloudflare CDN experiencing increase in errors.",
+     "impact": "critical",
+     "timestamp": "Oct <var data-var='date'>2</var>, <var data-var='time'>21:46</var> - <var data-var='time'>21:57</var> UTC"
+    }
+   ]
+  },
+  {
+   "name": "September",
+   "year": 2026,
+   "incidents": [
+    {
+     "code": "tw2ks58rw7vw",
+     "name": "[Scheduled] HKG (Hong Kong) on 2026-09-30",
+     "impact": "maintenance",
+     "timestamp": "Sep <var data-var='date'>30</var>, <var data-var='time'>18:00</var> - <var data-var='time'>22:00</var> UTC"
+    },
+    {
+     "code": "d6g8nkbf4jzf",
+     "name": "[Scheduled] NRT (Tokyo) on 2026-09-30",
+     "impact": "maintenance",
+     "timestamp": "Sep <var data-var='date'>30</var>, <var data-var='time'>17:00</var> - <var data-var='time'>21:00</var> UTC"
+    },
+    {
+     "code": "mq69fw5ykdwb",
+     "name": "Network Performance Issues in Los Angeles (LAX)",
+     "impact": "minor",
+     "timestamp": "Sep <var data-var='date'>30</var>, <var data-var='time'>13:49</var> - <var data-var='time'>19:18</var> UTC"
+    },
+    {
+     "code": "2h896759fg2f",
+     "name": "Membership Permission Change Delays",
+     "impact": "minor",
+     "timestamp": "Sep <var data-var='date'>30</var>, <var data-var='time'>13:36</var> - <var data-var='time'>18:10</var> UTC"
+    },
+    {
+     "code": "0dq5fbp2xwbj",
+     "name": "WARP connectivity in Newark, NJ",
+     "impact": "minor",
+     "timestamp": "Sep <var data-var='date'>30</var>, <var data-var='time'>00:45</var> - <var data-var='time'>00:45</var> UTC"
+    },
+    {
+     "code": "1w42pbthkqjf",
+     "name": "Network Route Leak in Palmas, Brazil",
+     "impact": "major",
+     "timestamp": "Sep <var data-var='date'>1</var>, <var data-var='time'>21:47</var> - <var data-var='time'>22:05</var> UTC"
+    }
+   ]
+  },
+  {
+   "name": "August",
+   "year": 2026,
+   "incidents": [
+    {
+     "code": "rbh12kqflhyt",
+     "name": "[Scheduled] KHI (Karachi) on 2026-08-31",
+     "impact": "maintenance",
+     "timestamp": "Aug <var data-var='date'>31</var>, <var data-var='time'>19:00</var> - <var data-var='time'>23:00</var> UTC"
+    },
+    {
+     "code": "72lc3n642lkf",
+     "name": "Cloudflare Access one-time PIN emails blocked by certain email security gateways, including Proofpoint",
+     "impact": "minor",
+     "timestamp": "Aug <var data-var='date'>31</var>, <var data-var='time'>20:16</var> - <var data-var='time'>22:02</var> UTC"
+    },
+    {
+     "code": "kby271yt9vwx",
+     "name": "Workers KV experiencing elevated error rates in Western Europe Region",
+     "impact": "minor",
+     "timestamp": "Aug <var data-var='date'>31</var>, <var data-var='time'>11:02</var> - <var data-var='time'>15:04</var> UTC"
+    },
+    {
+     "code": "fcdl2yb3q7qw",
+     "name": "Cloudflare Access bypass IP service experiencing availability issues",
+     "impact": "minor",
+     "timestamp": "Aug <var data-var='date'>31</var>, <var data-var='time'>11:40</var> - <var data-var='time'>14:50</var> UTC"
+    },
+    {
+     "code": "qmqs75slrvw7",
+     "name": "[Scheduled] SJC (San Jose) on 2026-08-31",
+     "impact": "maintenance",
+     "timestamp": "Aug <var data-var='date'>31</var>, <var data-var='time'>07:00</var> - <var data-var='time'>14:00</var> UTC"
+    },
+    {
+     "code": "fdyjr0t87mrb",
+     "name": "Email Security delivery impacted by Spamhaus listing",
+     "impact": "major",
+     "timestamp": "Aug <var data-var='date'>12</var>, <var data-var='time'>15:04</var> - <var data-var='time'>17:23</var> UTC"
+    }
+   ]
+  }
+ ]
+}

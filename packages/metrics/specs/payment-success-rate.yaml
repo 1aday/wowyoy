@@ -1,0 +1,227 @@
+id: payment-success-rate
+name: Payment success rate
+aliases:
+  - Payment authorization rate
+  - Authorization rate
+  - Payment approval rate
+  - Payment acceptance rate
+family: conversion
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of payment attempts that succeed, across every gateway and payment method, in the week.
+  formula: Successful payment attempts ÷ all payment attempts (succeeded + failed)
+
+events:
+  - name: payment_succeeded
+    description: A payment authorized and captured, from the processor's webhook, not the browser.
+    also_called: [payment_intent.succeeded, charge.succeeded, Payment Succeeded]
+    properties:
+      - name: gateway
+        description: The processor that handled it (stripe, adyen, paypal, shopify_payments).
+      - name: method
+        description: card, apple_pay, google_pay, paypal, klarna and so on.
+      - name: amount
+        description: The amount attempted.
+  - name: payment_failed
+    description: A payment attempt declined or errored, one event per attempt, from the processor's webhook.
+    also_called: [payment_intent.payment_failed, charge.failed, Payment Failed]
+    properties:
+      - name: gateway
+        description: The processor that handled it.
+      - name: method
+        description: The payment method attempted.
+      - name: decline_code
+        description: The issuer's or processor's reason, such as insufficient_funds, do_not_honor or fraudulent.
+
+numerator:
+  label: Successful payment attempts
+  aggregate: count
+  event: payment_succeeded
+
+queries:
+  hogql: |-
+    -- Payment success rate per week: successful payment attempts ÷ all attempts (succeeded + failed). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT
+      w.week AS week,
+      coalesce(p.succeeded, 0) AS numerator,
+      coalesce(p.attempts, 0) AS denominator,
+      if(coalesce(p.attempts, 0) = 0, NULL, p.succeeded / p.attempts) AS value
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT
+        toMonday(toTimeZone(timestamp, 'UTC')) AS week,
+        countIf(event = 'payment_succeeded') AS succeeded,
+        count() AS attempts
+      FROM events
+      WHERE event IN ('payment_succeeded', 'payment_failed')
+        AND timestamp >= now() - toIntervalWeek(27)
+        AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+      GROUP BY week
+    ) AS p ON p.week = w.week
+    ORDER BY week
+  postgres: |-
+    -- Payment success rate per week: successful payment attempts ÷ all attempts (succeeded + failed). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    payments AS (
+      SELECT
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week,
+        count(*) FILTER (WHERE event_name = 'payment_succeeded') AS succeeded,
+        count(*) AS attempts
+      FROM events
+      WHERE event_name IN ('payment_succeeded', 'payment_failed')
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+      GROUP BY 1
+    )
+    SELECT
+      w.week,
+      coalesce(p.succeeded, 0) AS numerator,
+      coalesce(p.attempts, 0) AS denominator,
+      p.succeeded::numeric / nullif(p.attempts, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN payments AS p ON p.week = w.week
+    ORDER BY w.week;
+  bigquery: |-
+    -- Payment success rate per week: successful payment attempts ÷ all attempts (succeeded + failed). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    payments AS (
+      SELECT
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
+        COUNTIF(event_name = 'payment_succeeded') AS succeeded,
+        COUNT(*) AS attempts
+      FROM events
+      WHERE event_name IN ('payment_succeeded', 'payment_failed')
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      GROUP BY week
+    )
+    SELECT
+      w.week,
+      COALESCE(p.succeeded, 0) AS numerator,
+      COALESCE(p.attempts, 0) AS denominator,
+      SAFE_DIVIDE(p.succeeded, p.attempts) AS value
+    FROM weeks AS w
+    LEFT JOIN payments AS p ON p.week = w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- Payment success rate per week: successful payment attempts ÷ all attempts (succeeded + failed). Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    payments AS (
+      SELECT
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week,
+        COUNT_IF(event_name = 'payment_succeeded') AS succeeded,
+        COUNT(*) AS attempts
+      FROM events
+      WHERE event_name IN ('payment_succeeded', 'payment_failed')
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+      GROUP BY 1
+    )
+    SELECT
+      w.week,
+      COALESCE(p.succeeded, 0) AS numerator,
+      COALESCE(p.attempts, 0) AS denominator,
+      p.succeeded::float / NULLIF(p.attempts, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN payments AS p ON p.week = w.week
+    ORDER BY w.week;
+
+noise:
+  type: binomial
+  min_denominator: 100
+  volume_unit: payment attempts a week
+  typical: 0.92
+
+example:
+  business: store
+  level: 0.93
+  volume: 14300
+  trend: 0
+
+drivers:
+  - id: card-testing
+    label: Card testing and bots
+    dropped:
+      check: Is a card-testing attack sending bursts of failed attempts with stolen cards?
+      yes: Failed attempts spike within hours from a few sessions or IPs, with small amounts and codes like incorrect_cvc, while orders hold.
+    spiked:
+      check: Did a card-testing attack from last week stop, or did a new rule block bots before they reach the processor?
+      yes: Failed attempts fall back while successful payments hold; the rise is a smaller denominator, not more customers paying.
+  - id: processor
+    label: Processor incidents
+    breakdown: gateway
+    feed: stripe
+    dropped:
+      check: Did one gateway or processor have an outage or a degraded period this week?
+      yes: Failures concentrate on one gateway during the hours of an incident on its status page.
+    spiked:
+      check: Did an incident from the week before clear?
+      yes: The affected gateway returns to its usual rate and the others never moved.
+  - id: method
+    label: Payment methods
+    breakdown: method
+    dropped:
+      check: Is one method failing, such as Apple Pay, PayPal, a buy-now-pay-later provider or 3-D Secure cards?
+      yes: One method's success falls while cards and the other methods hold.
+    spiked:
+      check: Did wallets, which approve more often than typed cards, gain share, or did a weak method get removed?
+      yes: Each method's own rate holds and only the mix moved.
+  - id: fraud-rules
+    label: Fraud rules and 3-D Secure
+    breakdown: decline_code
+    dropped:
+      check: Did a fraud rule, risk setting or 3-D Secure change start blocking good customers?
+      yes: One decline code, such as fraudulent or authentication_required, rises from the day the rule changed.
+    spiked:
+      check: Was a fraud rule loosened? Check disputes before celebrating.
+      yes: Blocked attempts fall from the day of the change, and fraud disputes may rise a few weeks later.
+  - id: country-mix
+    label: Countries and card issuers
+    breakdown: $geoip_country_code
+    dropped:
+      check: Did more attempts come from countries where cross-border cards decline more often, for example after a new campaign?
+      yes: One country's share of attempts grows and its success rate sits well below the rest.
+    spiked:
+      check: Did a low-approval country shrink, or did a local payment method launch there?
+      yes: The country mix moved, or one country's rate rose from the day a method launched.
+
+diagnose_order: [card-testing, processor, method, fraud-rules, country-mix]
+
+related: [checkout-conversion, conversion-rate, orders, mobile-conversion-rate, net-revenue]
+
+prose:
+  why_it_matters: >-
+    Every failed payment is a shopper who had already decided to buy and typed in a card. A fall
+    is rarely about the shopper; it is a processor incident, a fraud rule or a bot testing stolen
+    cards. At Northwind, with about 14,000 attempts a week, one point is 140 failed attempts a
+    week, most of them from people who were already at checkout.
+  pitfalls:
+    - Retries count as attempts, so a shopper who is declined twice and then pays is one success in three. Read checkout conversion beside it to see what shoppers experienced.
+    - Card-testing bots can send thousands of failed attempts in an hour and pull a week down ten points with no real customer affected. Split by session or IP before reacting.
+    - Record payment events from the processor's webhooks, not the browser. Browser events miss redirect methods such as PayPal and Klarna and duplicate on reloads.
+    - Processors disagree on what a failure is; a 3-D Secure challenge the shopper abandons is a failure in some and nothing in others. Changing processors moves the rate with no change in approvals.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

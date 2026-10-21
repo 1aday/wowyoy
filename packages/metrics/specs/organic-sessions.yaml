@@ -1,0 +1,247 @@
+id: organic-sessions
+name: Organic search sessions
+aliases:
+  - Organic traffic
+  - Organic search traffic
+  - SEO traffic
+family: traffic
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: Visits that arrived from an unpaid search result, judged by the first page of the visit.
+  formula: Sessions whose first page view came from a search engine, or is tagged utm_medium=organic, with no paid tag or ad click id
+
+events:
+  - name: $pageview
+    description: One page load or client-side route change, captured in the browser.
+    also_called: [page_view, Page Viewed, page]
+    properties:
+      - name: $session_id
+        description: Set by the analytics SDK; the session's first page view decides its channel.
+      - name: $referring_domain
+        description: The domain the visitor came from, or $direct when there was none.
+      - name: utm_medium
+        description: The campaign medium from the landing URL. When set, it decides the channel.
+      - name: gclid
+        description: Google Ads click id, added by auto-tagging. Also gbraid, wbraid, and msclkid for Microsoft Ads. Marks the visit as paid.
+
+numerator:
+  label: Organic search sessions
+  aggregate: unique_sessions
+  event: $pageview
+  where:
+    - property: utm_medium
+      op: is_not_set
+    - property: $referring_domain
+      op: in
+      value: [www.google.com, google.com, www.bing.com, duckduckgo.com, search.yahoo.com, yandex.ru, www.ecosia.org, search.brave.com]
+
+queries:
+  hogql: |-
+    -- Organic search sessions per week: sessions whose first page view came from a search engine (or is tagged utm_medium=organic), with no paid tag or ad click id. Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT w.week AS week, coalesce(s.sessions, 0) AS value
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, count() AS sessions
+      FROM (
+        SELECT
+          $session_id AS session_id,
+          toMonday(toTimeZone(min(timestamp), 'UTC')) AS week,
+          argMin(lower(coalesce(properties.utm_medium, '')), timestamp) AS medium,
+          argMin(lower(coalesce(properties.$referring_domain, '')), timestamp) AS referrer,
+          argMin(coalesce(properties.gclid, properties.gbraid, properties.wbraid, properties.msclkid, '') <> '', timestamp) AS ad_click
+        FROM events
+        WHERE event = '$pageview'
+          AND $session_id != ''
+          AND timestamp >= now() - toIntervalWeek(27)
+          AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+        GROUP BY session_id
+      )
+      WHERE NOT (match(medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
+        AND (medium = 'organic' OR (medium = '' AND match(referrer, '^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$')))
+      GROUP BY week
+    ) AS s ON s.week = w.week
+    ORDER BY week
+  postgres: |-
+    -- Organic search sessions per week: sessions whose first page view came from a search engine (or is tagged utm_medium=organic), with no paid tag or ad click id. Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    entries AS (
+      SELECT DISTINCT ON (session_id)
+        session_id,
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week,
+        lower(coalesce(properties->>'utm_medium', '')) AS medium,
+        lower(coalesce(properties->>'$referring_domain', '')) AS referrer,
+        coalesce(properties->>'gclid', properties->>'gbraid', properties->>'wbraid', properties->>'msclkid', '') <> '' AS ad_click
+      FROM events
+      WHERE event_name = '$pageview'
+        AND session_id <> ''
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+      ORDER BY session_id, occurred_at
+    ),
+    weekly AS (
+      SELECT week, count(*) AS sessions
+      FROM entries
+      WHERE NOT (medium ~ '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$' OR ad_click)
+        AND (medium = 'organic' OR (medium = '' AND referrer ~ '^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$'))
+      GROUP BY week
+    )
+    SELECT w.week, coalesce(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
+  bigquery: |-
+    -- Organic search sessions per week: sessions whose first page view came from a search engine (or is tagged utm_medium=organic), with no paid tag or ad click id. Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    entries AS (
+      SELECT
+        session_id,
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
+        LOWER(COALESCE(JSON_VALUE(properties, '$.utm_medium'), '')) AS medium,
+        LOWER(COALESCE(JSON_VALUE(properties, '$."$referring_domain"'), '')) AS referrer,
+        COALESCE(JSON_VALUE(properties, '$.gclid'), JSON_VALUE(properties, '$.gbraid'), JSON_VALUE(properties, '$.wbraid'), JSON_VALUE(properties, '$.msclkid'), '') <> '' AS ad_click
+      FROM events
+      WHERE event_name = '$pageview'
+        AND session_id <> ''
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY occurred_at) = 1
+    ),
+    weekly AS (
+      SELECT week, COUNT(*) AS sessions
+      FROM entries
+      WHERE NOT (REGEXP_CONTAINS(medium, r'^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
+        AND (medium = 'organic' OR (medium = '' AND REGEXP_CONTAINS(referrer, r'^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$')))
+      GROUP BY week
+    )
+    SELECT w.week, COALESCE(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- Organic search sessions per week: sessions whose first page view came from a search engine (or is tagged utm_medium=organic), with no paid tag or ad click id. Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    entries AS (
+      SELECT
+        session_id,
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week,
+        LOWER(COALESCE(properties:"utm_medium"::string, '')) AS medium,
+        LOWER(COALESCE(properties:"$referring_domain"::string, '')) AS referrer,
+        COALESCE(properties:"gclid"::string, properties:"gbraid"::string, properties:"wbraid"::string, properties:"msclkid"::string, '') <> '' AS ad_click
+      FROM events
+      WHERE event_name = '$pageview'
+        AND session_id <> ''
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY occurred_at) = 1
+    ),
+    weekly AS (
+      SELECT week, COUNT(*) AS sessions
+      FROM entries
+      WHERE NOT (REGEXP_LIKE(medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
+        AND (medium = 'organic' OR (medium = '' AND REGEXP_LIKE(referrer, '^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$')))
+      GROUP BY week
+    )
+    SELECT w.week, COALESCE(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
+
+noise:
+  type: poisson
+  min_denominator: 100
+  volume_unit: organic sessions a week
+  typical: 12000
+  reference_volumes: [1000, 5000, 25000, 100000]
+
+example:
+  business: store
+  level: 125000
+  volume: 125000
+  trend: 0.08
+
+drivers:
+  - id: classification
+    label: Tracking and channel rules
+    dropped:
+      check: Did a redirect, consent change or new domain strip the referrer, so search visits now look direct?
+      yes: Direct sessions rise by about as much as organic falls, from the day of the change.
+    spiked:
+      check: Did paid search lose its tags, so ad clicks now count as organic?
+      yes: Paid search sessions fall by about as much as organic rises, often after auto-tagging was switched off or a redirect dropped the click id.
+  - id: google-update
+    label: Google updates and results pages
+    feed: google-search
+    dropped:
+      check: Did a core update, a ranking loss or an AI Overview start taking clicks from key queries?
+      yes: The fall starts on a dated update and concentrates on a few landing pages or query groups.
+    spiked:
+      check: Did a core update or a new results feature reward the site's pages?
+      yes: The rise starts on a dated update and holds for more than one week.
+  - id: calendar
+    label: Seasonal search demand
+    feed: shopping
+    dropped:
+      check: Did people simply search less for what the store sells, after a holiday or a season?
+      yes: The same weeks last year show the same fall once aligned on the event.
+    spiked:
+      check: Is this a gifting, sale or seasonal week when people search more?
+      yes: The same week last year shows the same rise.
+  - id: brand-demand
+    label: Branded searches
+    metric: ad-spend
+    dropped:
+      check: Did advertising, press or a launch that drove people to search the brand name stop?
+      yes: Visits landing on the home page from search fall while product-page search visits hold.
+    spiked:
+      check: Did a campaign, a press piece or a creator post make people search the brand?
+      yes: The rise lands on the home page and brand queries, and fades when the campaign ends.
+  - id: landing-pages
+    label: Pages that rank
+    breakdown: $pathname
+    dropped:
+      check: Did a ranking page get removed, redirected, noindexed or slower?
+      yes: One or two landing paths account for most of the fall.
+    spiked:
+      check: Did a new or updated page start ranking for a valuable query?
+      yes: One or two landing paths account for most of the rise.
+
+diagnose_order: [classification, google-update, calendar, brand-demand, landing-pages]
+
+related: [sessions, paid-sessions, referral-sessions, new-visitor-share, conversion-rate]
+
+prose:
+  why_it_matters: >-
+    Organic search is the traffic a store doesn't pay for each week, so it sets how much of
+    growth has to be bought. It also moves on dates you can look up: Google ships several core
+    updates a year, and a store with 125,000 organic sessions a week can lose 15% in the days
+    after one without changing a thing.
+  pitfalls:
+    - Google Ads auto-tagging adds a gclid but no UTM tags. Without checking the click id, paid search clicks land in organic and organic looks better than it is.
+    - Organic here means search engines only, GA4's Organic Search group. Unpaid social posts, emails and links from other sites are separate channels, and GA4's Organic Social, Organic Video and Organic Shopping groups are not included.
+    - Visits from ChatGPT, Perplexity and other AI assistants arrive as referrals, not search, even when they answer what used to be a search. Read them in referral sessions.
+    - Search engines don't pass the keyword, so this number can't tell branded from unbranded searches. Use Search Console for that split, and expect its clicks never to match sessions exactly, because consent banners, ad blockers and slow pages lose some visits.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

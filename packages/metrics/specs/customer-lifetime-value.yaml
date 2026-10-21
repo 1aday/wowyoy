@@ -1,0 +1,365 @@
+id: customer-lifetime-value
+name: Customer lifetime value
+aliases:
+  - LTV
+  - CLV
+  - CLTV
+  - Lifetime value
+  - 12-month LTV
+family: customers
+kind: currency
+polarity: up-is-good
+
+definition:
+  one_line: The net revenue a new customer brings in their first 365 days, first order included, averaged over the customers who first ordered in the week.
+  formula: Net revenue from cohort customers' orders in the 365 days from each one's first order ÷ customers in the cohort
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: is_first_order
+        description: True when the store has no earlier order from this customer, from its own customer records.
+      - name: customer_id
+        description: The store's customer id, shared by guest and logged-in orders with the same email.
+      - name: order_id
+        description: Unique per order; links refunds back to the order and its customer.
+      - name: total
+        description: Order value after discounts, before tax and shipping.
+  - name: order_refunded
+    description: A refund issued against an earlier order, full or partial.
+    also_called: [refund, Order Refunded]
+    properties:
+      - name: order_id
+        description: The order the refund belongs to.
+      - name: amount
+        description: The refunded amount, excluding tax and shipping.
+
+numerator:
+  label: Net revenue in each customer's first 365 days
+  aggregate: sum
+  event: order_completed
+  property: total
+denominator:
+  label: Customers whose first order fell in the week
+  aggregate: unique_users
+  event: order_completed
+  where:
+    - property: is_first_order
+      op: eq
+      value: true
+
+queries:
+  hogql: |-
+    -- Customer lifetime value (12 months): average net revenue per customer in the 365 days from their first order, first order included and refunds taken off, by first-order week. First-order weeks 79 to 54 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their 365 days close.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT
+      w.week AS week,
+      coalesce(c.amount_total, 0) AS numerator,
+      coalesce(c.customers, 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(54, 80))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, sum(amount) AS amount_total, count() AS customers
+      FROM (
+        SELECT
+          toMonday(f.first_at) AS week,
+          f.customer_id AS customer_id,
+          sumIf(o.amount, o.ts >= f.first_at AND o.ts < f.first_at + toIntervalDay(365)) AS amount
+        FROM (
+          SELECT customer_id, min(ts) AS first_at
+          FROM (
+            SELECT coalesce(properties.customer_id, toString(person_id)) AS customer_id, toTimeZone(timestamp, 'UTC') AS ts
+            FROM events
+            WHERE event = 'order_completed'
+              AND properties.is_first_order = 'true'
+              AND timestamp >= now() - toIntervalWeek(80)
+              AND toMonday(toTimeZone(timestamp, 'UTC')) >= toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(79)
+          )
+          WHERE customer_id IS NOT NULL
+          GROUP BY customer_id
+        ) AS f
+        INNER JOIN (
+          SELECT po.customer_id AS customer_id, po.ts AS ts, po.total - coalesce(r.refunded, 0) AS amount
+          FROM (
+            SELECT
+              coalesce(properties.customer_id, toString(person_id)) AS customer_id,
+              properties.order_id AS order_id,
+              toTimeZone(timestamp, 'UTC') AS ts,
+              toFloat(properties.total) AS total,
+              toFloat(properties.cost_of_goods) AS cost_of_goods
+            FROM events
+            WHERE event = 'order_completed'
+              AND timestamp >= now() - toIntervalWeek(80)
+              AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(79) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+          ) AS po
+          LEFT JOIN (
+            SELECT properties.order_id AS order_id, sum(toFloat(properties.amount)) AS refunded
+            FROM events
+            WHERE event = 'order_refunded'
+              AND timestamp >= now() - toIntervalWeek(80)
+              AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(79) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+            GROUP BY order_id
+          ) AS r ON r.order_id = po.order_id
+        ) AS o ON o.customer_id = f.customer_id
+        WHERE toMonday(f.first_at) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(79) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(54)
+        GROUP BY week, customer_id
+      )
+      GROUP BY week
+    ) AS c ON c.week = w.week
+    ORDER BY week
+  postgres: |-
+    -- Customer lifetime value (12 months): average net revenue per customer in the 365 days from their first order, first order included and refunds taken off, by first-order week. First-order weeks 79 to 54 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their 365 days close.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '79 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '54 weeks',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    refunds AS (
+      SELECT properties->>'order_id' AS order_id, sum(CASE WHEN properties->>'amount' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'amount')::numeric END) AS refunded
+      FROM events
+      WHERE event_name = 'order_refunded'
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '79 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+      GROUP BY 1
+    ),
+    orders AS (
+      SELECT
+        coalesce(e.properties->>'customer_id', e.user_id) AS customer_id,
+        e.properties->>'is_first_order' = 'true' AS is_first_order,
+        e.occurred_at AT TIME ZONE 'UTC' AS ts,
+        CASE WHEN e.properties->>'total' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (e.properties->>'total')::numeric END - coalesce(r.refunded, 0) AS amount
+      FROM events AS e
+      LEFT JOIN refunds AS r ON r.order_id = e.properties->>'order_id'
+      WHERE e.event_name = 'order_completed'
+        AND e.occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '79 weeks') AT TIME ZONE 'UTC'
+        AND e.occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+    ),
+    first_orders AS (
+      SELECT customer_id, min(ts) AS first_at
+      FROM orders
+      WHERE is_first_order
+        AND customer_id IS NOT NULL
+        AND ts < date_trunc('week', now() AT TIME ZONE 'UTC') - interval '53 weeks'
+      GROUP BY customer_id
+    ),
+    cohort AS (
+      SELECT date_trunc('week', f.first_at)::date AS week, f.customer_id, sum(o.amount) AS amount
+      FROM first_orders AS f
+      JOIN orders AS o
+        ON o.customer_id = f.customer_id
+       AND o.ts >= f.first_at
+       AND o.ts < f.first_at + interval '365 days'
+      GROUP BY 1, 2
+    )
+    SELECT
+      w.week,
+      coalesce(sum(c.amount), 0) AS numerator,
+      count(c.customer_id) AS denominator,
+      coalesce(sum(c.amount), 0) / nullif(count(c.customer_id), 0) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+  bigquery: |-
+    -- Customer lifetime value (12 months): average net revenue per customer in the 365 days from their first order, first order included and refunds taken off, by first-order week. First-order weeks 79 to 54 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their 365 days close.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 79 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 54 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    refunds AS (
+      SELECT JSON_VALUE(properties, '$.order_id') AS order_id, SUM(SAFE_CAST(JSON_VALUE(properties, '$.amount') AS FLOAT64)) AS refunded
+      FROM events
+      WHERE event_name = 'order_refunded'
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 79 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      GROUP BY order_id
+    ),
+    orders AS (
+      SELECT
+        COALESCE(JSON_VALUE(e.properties, '$.customer_id'), e.user_id) AS customer_id,
+        JSON_VALUE(e.properties, '$.is_first_order') = 'true' AS is_first_order,
+        e.occurred_at,
+        SAFE_CAST(JSON_VALUE(e.properties, '$.total') AS FLOAT64) - COALESCE(r.refunded, 0) AS amount
+      FROM events AS e
+      LEFT JOIN refunds AS r ON r.order_id = JSON_VALUE(e.properties, '$.order_id')
+      WHERE e.event_name = 'order_completed'
+        AND e.occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 79 WEEK))
+        AND e.occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+    ),
+    first_orders AS (
+      SELECT customer_id, MIN(occurred_at) AS first_at
+      FROM orders
+      WHERE is_first_order
+        AND customer_id IS NOT NULL
+        AND occurred_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 53 WEEK))
+      GROUP BY customer_id
+    ),
+    cohort AS (
+      SELECT DATE_TRUNC(DATE(f.first_at), ISOWEEK) AS week, f.customer_id, SUM(o.amount) AS amount
+      FROM first_orders AS f
+      JOIN orders AS o
+        ON o.customer_id = f.customer_id
+       AND o.occurred_at >= f.first_at
+       AND o.occurred_at < TIMESTAMP_ADD(f.first_at, INTERVAL 365 DAY)
+      GROUP BY week, f.customer_id
+    )
+    SELECT
+      w.week,
+      COALESCE(SUM(c.amount), 0) AS numerator,
+      COUNT(c.customer_id) AS denominator,
+      SAFE_DIVIDE(COALESCE(SUM(c.amount), 0), COUNT(c.customer_id)) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- Customer lifetime value (12 months): average net revenue per customer in the 365 days from their first order, first order included and refunds taken off, by first-order week. First-order weeks 79 to 54 weeks before this one (Monday 00:00 UTC), oldest first; younger cohorts are left out until their 365 days close.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -53 - ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    refunds AS (
+      SELECT properties:"order_id"::string AS order_id, SUM(TRY_TO_DOUBLE(properties:"amount"::string)) AS refunded
+      FROM events
+      WHERE event_name = 'order_refunded'
+        AND occurred_at >= DATEADD(week, -79, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+      GROUP BY 1
+    ),
+    orders AS (
+      SELECT
+        COALESCE(e.properties:"customer_id"::string, e.user_id) AS customer_id,
+        e.properties:"is_first_order"::string = 'true' AS is_first_order,
+        e.occurred_at,
+        TRY_TO_DOUBLE(e.properties:"total"::string) - COALESCE(r.refunded, 0) AS amount
+      FROM events AS e
+      LEFT JOIN refunds AS r ON r.order_id = e.properties:"order_id"::string
+      WHERE e.event_name = 'order_completed'
+        AND e.occurred_at >= DATEADD(week, -79, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND e.occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+    ),
+    first_orders AS (
+      SELECT customer_id, MIN(occurred_at) AS first_at
+      FROM orders
+      WHERE is_first_order
+        AND customer_id IS NOT NULL
+        AND occurred_at < DATEADD(week, -53, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+      GROUP BY customer_id
+    ),
+    cohort AS (
+      SELECT DATEADD(day, 1 - DAYOFWEEKISO(f.first_at), f.first_at::date) AS week, f.customer_id, SUM(o.amount) AS amount
+      FROM first_orders AS f
+      JOIN orders AS o
+        ON o.customer_id = f.customer_id
+       AND o.occurred_at >= f.first_at
+       AND o.occurred_at < DATEADD(day, 365, f.first_at)
+      GROUP BY 1, 2
+    )
+    SELECT
+      w.week,
+      COALESCE(SUM(c.amount), 0) AS numerator,
+      COUNT(c.customer_id) AS denominator,
+      COALESCE(SUM(c.amount), 0) / NULLIF(COUNT(c.customer_id), 0) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+
+noise:
+  type: mean
+  cv: 1.3
+  min_denominator: 200
+  volume_unit: first-time customers in the cohort
+  typical: 140
+
+example:
+  business: store
+  level: 138
+  volume: 6800
+  trend: 0.04
+
+drivers:
+  - id: tracking
+    label: Refund and customer records
+    dropped:
+      check: Did refunds start being linked to orders, or a batch of old refunds land against this cohort?
+      yes: Refunds per cohort customer jump while gross order value per customer holds.
+    spiked:
+      check: Did refunds stop syncing, or did duplicate order events inflate the cohort's revenue?
+      yes: Refunds fall to near zero, or orders per customer jump with the same order ids appearing twice.
+  - id: calendar
+    label: Holiday cohorts
+    feed: shopping
+    dropped:
+      check: Is this a Black Friday or holiday cohort? Deal hunters and gift buyers are often worth less over a year.
+      yes: The same cohort weeks last year show the same dip.
+    spiked:
+      check: Is this a cohort from a quiet, full-price season?
+      yes: The same cohort weeks last year show the same rise.
+  - id: cohort-source
+    label: How the cohort was won
+    breakdown: coupon
+    dropped:
+      check: Did the cohort come in on a deep discount, a giveaway or a new paid channel?
+      yes: Customers whose first order used that code are worth far less than the rest of the cohort.
+    spiked:
+      check: Did the cohort come mostly from referrals or full-price buyers?
+      yes: The share of first orders without a discount code is higher than in neighbouring cohorts.
+  - id: second-orders
+    label: Repeat buying
+    metric: second-order-rate
+    dropped:
+      check: Did the cohort reorder less, starting in its first 90 days?
+      yes: The same cohort's second order rate was below normal months ago.
+    spiked:
+      check: Did the cohort reorder more, from a new flow, a loyalty programme or a better product?
+      yes: The same cohort's second order rate was above normal months ago.
+  - id: order-value
+    label: Order value
+    metric: aov
+    dropped:
+      check: Did the cohort's orders get smaller, from discounts or a mix shift to cheaper products?
+      yes: Orders per customer hold while order value falls.
+    spiked:
+      check: Did a price rise or bundles lift the cohort's order value?
+      yes: Orders per customer hold while order value rises.
+  - id: refunds
+    label: Refunds
+    metric: refund-rate
+    dropped:
+      check: Did the cohort refund more, from a bad batch or delivery problems?
+      yes: Gross revenue per customer holds while refunds per customer rise.
+    spiked:
+      check: Did refunds fall after a quality or delivery fix?
+      yes: Refunds per customer run below earlier cohorts.
+
+diagnose_order: [tracking, calendar, cohort-source, second-orders, order-value, refunds]
+
+related: [ltv-to-cac, second-order-rate, purchase-frequency, aov, repeat-purchase-rate]
+
+prose:
+  why_it_matters: >-
+    Lifetime value sets the most a store can pay to win a customer. This spec measures it rather than
+    projects it: 12 months of real orders per cohort, so nothing rests on a guessed lifespan, at the
+    cost of waiting a year to see each cohort. At Northwind a first order averages about $95 and a
+    customer's first year about $138; the difference is what retention earns.
+  pitfalls:
+    - Projected LTV, order value × frequency × lifespan or ARPA ÷ churn, is only as good as its lifespan guess, and a guess of five years can triple it. Report realized value and label any projection as one.
+    - Revenue LTV overstates what a customer is worth. Take off product cost before comparing it with acquisition cost, as LTV to CAC does.
+    - Only cohorts whose 365 days have closed are reported, so the latest point describes customers who first ordered over a year ago. For an early read on recent cohorts, use second order rate.
+    - Refunds belong to the order they reverse. Taking refunds off by refund date instead of by order moves value between cohorts.
+    - Holiday cohorts are larger and often worth less per customer. Compare a cohort with the same week last year.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

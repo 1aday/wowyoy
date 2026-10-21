@@ -1,0 +1,176 @@
+[
+ {
+  "id": 1790109197742709,
+  "org_id": "ads-manager",
+  "posts": [
+   {
+    "id": 2,
+    "status": "Resolved",
+    "time": "2026-09-22T21:56:52.822Z",
+    "description": "We have recovered from an earlier outage impacting ad delivery across our platform, and services have now been restored. We apologize for any inconvenience that this may have caused."
+   },
+   {
+    "id": 1,
+    "status": "Medium disruptions",
+    "time": "2026-09-22T20:33:17.308Z",
+    "description": "We are aware of an issue that may be impacting ad delivery. Our engineering teams are aware and are actively looking to resolve the issue as quickly as possible."
+   }
+  ],
+  "service_id": 6,
+  "status": "Resolved",
+  "time": "2026-09-22T21:56:52.822Z"
+ },
+ {
+  "id": 1787356479288136,
+  "org_id": "ads-manager",
+  "posts": [
+   {
+    "id": 2,
+    "status": "Resolved",
+    "time": "2026-08-21T22:34:00.000Z",
+    "description": "We have recovered from an earlier outage impacting Ads Delivery, and services have now been restored. We apologize for any inconvenience that this may have caused."
+   },
+   {
+    "id": 1,
+    "status": "Medium disruptions",
+    "time": "2026-08-21T20:45:00.000Z",
+    "description": "We are aware of an issue that may be impacting ad delivery. Our engineering teams are aware and are actively looking to resolve the issue as quickly as possible."
+   }
+  ],
+  "service_id": 6,
+  "status": "Resolved",
+  "time": "2026-08-21T22:34:00.000Z"
+ },
+ {
+  "id": 1784454446180877,
+  "org_id": "ads-manager",
+  "posts": [
+   {
+    "id": 2,
+    "status": "Resolved",
+    "time": "2026-07-19T10:06:00.000Z",
+    "description": "We have recovered from an earlier outage impacting ad delivery across our platform, and services have now been restored. We apologize for any inconvenience that this may have caused."
+   },
+   {
+    "id": 1,
+    "status": "High disruptions",
+    "time": "2026-07-19T07:34:00.000Z",
+    "description": "We are aware of an issue that may be impacting ad delivery. Our engineering teams are aware and are actively looking to resolve the issue as quickly as possible."
+   }
+  ],
+  "service_id": 6,
+  "status": "Resolved",
+  "time": "2026-07-19T10:06:00.000Z"
+ },
+ {
+  "id": 1784200264278549,
+  "org_id": "ads-manager",
+  "posts": [
+   {
+    "id": 2,
+    "status": "Resolved",
+    "time": "2026-07-16T11:47:00.000Z",
+    "description": "We have recovered from an earlier outage impacting ad delivery across our platform, and services have now been restored. We apologize for any inconvenience that this may have caused."
+   },
+   {
+    "id": 1,
+    "status": "High disruptions",
+    "time": "2026-07-16T09:40:00.000Z",
+    "description": "We are recovering from an earlier outage that caused disruptions in ad delivery and services are in the process of being restored. We apologize for any inconvenience that this may have caused."
+   }
+  ],
+  "service_id": 6,
+  "status": "Resolved",
+  "time": "2026-07-16T11:47:00.000Z"
+ },
+ {
+  "id": 1782252881413496,
+  "org_id": "ads-manager",
+  "posts": [
+   {
+    "id": 2,
+    "status": "Resolved",
+    "time": "2026-06-23T22:34:30.000Z",
+    "description": "We have recovered from an earlier outage impacting Ads Delivery, and services have now been restored.\nWe apologize for any inconvenience that this may have caused."
+   },
+   {
+    "id": 1,
+    "status": "High disruptions",
+    "time": "2026-06-23T21:04:00.000Z",
+    "description": "We are aware of an issue that may be impacting ad delivery. Our engineering teams are aware and are actively looking to resolve the issue as quickly as possible."
+   }
+  ],
+  "service_id": 6,
+  "status": "Resolved",
+  "time": "2026-06-23T22:34:30.000Z"
+ },
+ {
+  "id": 1781273560375853,
+  "org_id": "ads-manager",
+  "posts": [
+   {
+    "id": 3,
+    "status": "Resolved",
+    "time": "2026-06-12T16:55:11.000Z",
+    "description": "We have recovered from an earlier outage impacting Ads Creation and Editing, and services have now been restored.\nWe apologize for any inconvenience that this may have caused."
+   },
+   {
+    "id": 2,
+    "status": "Medium disruptions",
+    "time": "2026-06-12T16:32:09.182Z",
+    "description": "We are aware that some advertisers may be having trouble creating or editing their ads in Ads Manager. Our engineering teams are aware and are actively looking to resolve the issue as quickly as possible."
+   },
+   {
+    "id": 1,
+    "status": "High disruptions",
+    "time": "2026-06-12T13:35:00.000Z",
+    "description": "We are aware that some advertisers may be having trouble creating or editing their ads in Ads Manager. Our engineering teams are aware and are actively looking to resolve the issue as quickly as possible."
+   }
+  ],
+  "service_id": 5,
+  "status": "Resolved",
+  "time": "2026-06-12T16:55:11.000Z"
+ },
+ {
+  "id": 1781273621356955,
+  "org_id": "ads-manager",
+  "posts": [
+   {
+    "id": 2,
+    "status": "Resolved",
+    "time": "2026-06-12T16:27:35.000Z",
+    "description": "We have recovered from an earlier outage impacting Ads Reporting, and services have now been restored.\nWe apologize for any inconvenience that this may have caused."
+   },
+   {
+    "id": 1,
+    "status": "High disruptions",
+    "time": "2026-06-12T13:39:00.000Z",
+    "description": "We are recovering from an earlier outage that caused some advertisers to have trouble accessing or viewing ads reporting, and services are in the process of being restored. We apologize for any inconvenience that this may have caused."
+   }
+  ],
+  "service_id": 7,
+  "status": "Resolved",
+  "time": "2026-06-12T16:27:35.000Z"
+ },
+ {
+  "id": 1781273419510518,
+  "org_id": "ads-manager",
+  "posts": [
+   {
+    "id": 2,
+    "status": "Resolved",
+    "time": "2026-06-12T14:41:57.243Z",
+    "description": "We have recovered from an earlier outage impacting ad delivery across our platform, and services have now been restored. We apologize for any inconvenience that this may have caused."
+   },
+   {
+    "id": 1,
+    "status": "High disruptions",
+    "time": "2026-06-12T14:08:00.000Z",
+    "description": "We are aware of an issue that may be impacting ad delivery. Our engineering teams are aware and are actively looking to resolve the issue as quickly as possible."
+   }
+  ],
+  "service_id": 6,
+  "status": "Resolved",
+  "time": "2026-06-12T14:41:57.243Z"
+ }
+]

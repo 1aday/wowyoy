@@ -1,0 +1,123 @@
+id: new-mrr
+name: New MRR
+aliases:
+  - New business MRR
+  - New monthly recurring revenue
+  - New subscription MRR
+family: subscription
+kind: currency
+polarity: up-is-good
+
+definition:
+  one_line: The monthly recurring revenue added by subscriptions that made their first payment this week.
+  formula: Sum of the monthly amounts of subscriptions whose first paid period started this week, annual plans divided by twelve
+
+events:
+  - name: subscription_started
+    description: A subscription's first paid period began, sent by the billing system when the first payment succeeds; not the trial start.
+    also_called: [Subscription Started, subscription_activated, invoice.paid (first)]
+    properties:
+      - name: subscription_id
+        description: The billing system's subscription id.
+      - name: mrr
+        description: The subscription's monthly amount after discounts, before tax; annual plans divided by twelve.
+      - name: plan
+        description: The plan the subscription started on.
+
+numerator:
+  label: New MRR
+  aggregate: sum
+  event: subscription_started
+  property: mrr
+
+noise:
+  type: compound
+  cv: 0.9
+  min_denominator: 10
+  volume_unit: new subscriptions a week
+  typical: 2000
+  reference_volumes: [10, 40, 150, 600]
+
+example:
+  business: saas
+  level: 2900
+  volume: 29
+  trend: 0.3
+
+drivers:
+  - id: billing-sync
+    label: Billing sync
+    dropped:
+      check: Did the billing sync stop or lag, so subscriptions that started don't appear as events?
+      yes: The billing system shows more new subscriptions this week than there are subscription_started events.
+    spiked:
+      check: Did a backfill or a re-sync replay old subscriptions as new this week?
+      yes: Many subscription_started events arrive at once, for subscriptions whose first invoice is weeks old.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Is this a holiday week, when business buyers pause purchases?
+      yes: The same week last year shows the same dip once aligned on the holiday.
+    spiked:
+      check: Is this the last week of a month or quarter, when sales-led deals close?
+      yes: Deals cluster in the same closing week in earlier quarters too.
+  - id: first-payments
+    label: First payments
+    feed: stripe
+    dropped:
+      check: Did the checkout or the first payment fail for people trying to subscribe?
+      yes: Declines or errors on first invoices rise, often during a processor incident, while trials ending holds.
+    spiked:
+      check: Did a price change, promotion or launch push people to start paying this week?
+      yes: Starts cluster from the day it went live; check how many leave when the discount ends.
+  - id: new-accounts
+    label: How many started
+    metric: new-paid-accounts
+    dropped:
+      check: Did fewer accounts start paying, or did the same number start smaller?
+      yes: New paid accounts fall by about as much as new MRR while MRR per new account holds.
+    spiked:
+      check: Is the rise in the number of new accounts rather than their size?
+      yes: New paid accounts rise by about as much as new MRR.
+  - id: plan-mix
+    label: Plan mix
+    breakdown: plan
+    dropped:
+      check: Are new customers starting on smaller plans, or did starts on the top plan stop?
+      yes: New subscriptions hold but the share on the top plan falls, and new MRR per start drops.
+    spiked:
+      check: Did one large deal, or a shift to bigger plans, lift the total?
+      yes: One or two subscriptions are most of the week's new MRR. Treat it as a deal, not a trend.
+  - id: trial-conversion
+    label: Trials converting
+    metric: trial-conversion-rate
+    dropped:
+      check: Did fewer of the trials ending this week convert, or did fewer trials end?
+      yes: Conversion of ending trials falls while the number ending holds; if starts fell one trial length ago, the drop is that lag arriving.
+    spiked:
+      check: Did a large batch of trials end at once, from a launch or campaign one trial length ago?
+      yes: Conversions rise in step with trials that started one trial length earlier.
+
+diagnose_order: [billing-sync, calendar, first-payments, new-accounts, plan-mix, trial-conversion]
+
+related: [mrr, net-new-mrr, new-paid-accounts, trial-conversion-rate, arpa]
+
+prose:
+  why_it_matters: >-
+    New MRR is the inflow from customers paying for the first time, and for a growing SaaS company
+    it is usually the largest of the four MRR movements. It is also the noisiest: at 29 new
+    subscriptions a week, chance alone can move it by about 70% week to week, so one large deal
+    looks like a breakout. Read it over four weeks, split into how many accounts started and
+    what each one pays: at Copperline about 29 a week at about $100 a month each, below the $126
+    average account because customers start on smaller plans and grow into larger ones.
+  pitfalls:
+    - Counting a subscription when the trial starts rather than when it first pays books MRR that may never arrive. This spec counts the first paid period.
+    - A customer who cancels and later resubscribes is reactivation, not new business; ChartMogul and Baremetrics report it on its own line. Unless reactivations are marked, new MRR overstates acquisition.
+    - Annual plans belong at one twelfth of the contract. Booking the full year in the week it is paid makes one deal look like a month of growth.
+    - A discounted first month counts at the price actually charged; the step up when the discount ends is expansion, recorded the week it happens.
+    - At a few dozen starts a week, one enterprise deal can be half the total. Check how many subscriptions started before reading the amount.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

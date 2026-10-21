@@ -1,0 +1,214 @@
+id: mau
+name: Monthly active users
+aliases:
+  - MAU
+  - Monthly active users (MAU)
+  - Monthly actives
+  - 28-day active users
+family: engagement
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: The number of distinct people active at least once in the 28 days ending this Sunday.
+  formula: Distinct people with any event in the 28 days ending Sunday 23:59 UTC
+
+events:
+  - name: "*"
+    description: Any event a person sends. Activity, not one specific action; the same definition as DAU and WAU.
+    also_called: [All events, Any event, Active event]
+    properties:
+      - name: $os
+        description: The operating system, for splitting by platform.
+
+numerator:
+  label: Distinct active people in 28 days
+  aggregate: unique_users
+  event: "*"
+
+queries:
+  hogql: |-
+    -- Monthly active users per week: distinct people with any event in the four weeks (28 days) ending that Sunday. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT w.week AS week, coalesce(m.people, 0) AS value
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, count(DISTINCT person_id) AS people
+      FROM (
+        SELECT person_id, active_week + toIntervalWeek(arrayJoin([0, 1, 2, 3])) AS week
+        FROM (
+          SELECT DISTINCT person_id, toMonday(toTimeZone(timestamp, 'UTC')) AS active_week
+          FROM events
+          WHERE person_id IS NOT NULL
+            AND timestamp >= now() - toIntervalWeek(30)
+            AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(29) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+        )
+      )
+      WHERE week BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+      GROUP BY week
+    ) AS m ON m.week = w.week
+    ORDER BY week
+  postgres: |-
+    -- Monthly active users per week: distinct people with any event in the four weeks (28 days) ending that Sunday. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    active AS (
+      SELECT DISTINCT user_id, date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS active_week
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '29 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+    ),
+    monthly AS (
+      SELECT w.week, count(DISTINCT a.user_id) AS people
+      FROM weeks AS w
+      JOIN active AS a ON a.active_week BETWEEN w.week - 21 AND w.week
+      GROUP BY w.week
+    )
+    SELECT w.week, coalesce(m.people, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN monthly AS m ON m.week = w.week
+    ORDER BY w.week;
+  bigquery: |-
+    -- Monthly active users per week: distinct people with any event in the four weeks (28 days) ending that Sunday. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    active AS (
+      SELECT DISTINCT user_id, DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS active_week
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 29 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+    ),
+    monthly AS (
+      SELECT w.week, COUNT(DISTINCT a.user_id) AS people
+      FROM weeks AS w
+      JOIN active AS a ON a.active_week BETWEEN DATE_SUB(w.week, INTERVAL 3 WEEK) AND w.week
+      GROUP BY w.week
+    )
+    SELECT w.week, COALESCE(m.people, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN monthly AS m ON m.week = w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- Monthly active users per week: distinct people with any event in the four weeks (28 days) ending that Sunday. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    active AS (
+      SELECT DISTINCT user_id, DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS active_week
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= DATEADD(week, -29, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+    ),
+    monthly AS (
+      SELECT w.week, COUNT(DISTINCT a.user_id) AS people
+      FROM weeks AS w
+      JOIN active AS a ON a.active_week BETWEEN DATEADD(week, -3, w.week) AND w.week
+      GROUP BY w.week
+    )
+    SELECT w.week, COALESCE(m.people, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN monthly AS m ON m.week = w.week
+    ORDER BY w.week;
+
+noise:
+  type: process
+  min_denominator: 100
+  volume_unit: monthly active users
+  typical: 120000
+
+example:
+  business: app
+  level: 120000
+  volume: 120000
+  trend: 0.15
+
+drivers:
+  - id: tracking
+    label: Tracking and identity
+    dropped:
+      check: Did an SDK update, consent change or identity merge reduce the people counted?
+      yes: MAU falls on one platform or app version from one date, or falls the week duplicate ids were merged.
+    spiked:
+      check: Did bots, duplicated ids or a newly tracked surface, such as logged-out web pages, add people?
+      yes: The new actives have one or two events each and come from one platform, page or user agent.
+  - id: window
+    label: The 28-day window
+    dropped:
+      check: Did an unusually large week, from a launch or campaign, just leave the 28-day window?
+      yes: MAU falls exactly four weeks after a spike in new people, with no change in this week's activity.
+    spiked:
+      check: Did an unusually weak week, from an outage or holiday, just leave the window?
+      yes: MAU rises four weeks after a dip, with no change in this week's activity.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Does the window cover a holiday period when people use the product less?
+      yes: The same four weeks last year show the same dip.
+    spiked:
+      check: Does the window cover a seasonal high for the product?
+      yes: The same four weeks last year show the same rise.
+  - id: new-users
+    label: New users
+    metric: signups
+    dropped:
+      check: Did fewer new people arrive over the last four weeks?
+      yes: Sign-ups fell in the weeks inside the window by about as many as MAU did.
+    spiked:
+      check: Did a launch or campaign bring a wave of new people in the last four weeks?
+      yes: Sign-ups inside the window explain the rise; stickiness falls if they used it once.
+  - id: retention
+    label: Retention of recent cohorts
+    metric: week-4-retention
+    dropped:
+      check: Are recent cohorts staying active for fewer weeks?
+      yes: Week 4 retention of recent cohorts falls, so fewer of last month's newcomers are still counted.
+    spiked:
+      check: Are recent cohorts staying longer?
+      yes: Week 4 retention of recent cohorts rises.
+  - id: resurrected
+    label: Resurrected users
+    metric: resurrected-users
+    dropped:
+      check: Did fewer lapsed people come back over the last four weeks?
+      yes: Resurrected users are below their usual range for the weeks inside the window.
+    spiked:
+      check: Did a win-back campaign bring lapsed people back?
+      yes: Resurrected users explain most of the rise.
+
+diagnose_order: [tracking, window, calendar, new-users, retention, resurrected]
+
+related: [dau, wau, stickiness, week-4-retention, resurrected-users]
+
+prose:
+  why_it_matters: >-
+    MAU is the size of the audience a product reaches in a month, and the base that stickiness
+    divides by. Each week's figure shares three of its four weeks with the week before, so
+    it moves slowly, and a drop usually started up to four weeks ago. A fixed 28-day window keeps
+    every month the same length, so February doesn't look like a decline.
+  pitfalls:
+    - Calendar months run 28 to 31 days, which moves MAU by several percent on length alone. A fixed 28-day window removes that.
+    - Consecutive weeks share three weeks of activity, so MAU looks smoother than the business is. Read WAU and new users to see what changed this week.
+    - One push or email blast can add thousands of people who open once. They inflate MAU for four weeks and drag stickiness down.
+    - Logged-out visitors and signed-in people counted together double count anyone who signs in during the window, unless the anonymous id is merged into the person on sign-in.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

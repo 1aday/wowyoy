@@ -1,0 +1,111 @@
+id: unique-visitors
+name: Unique visitors
+aliases:
+  - Visitors
+  - Website visitors
+  - Weekly unique visitors
+family: traffic
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: The number of different people, counted by browser or login, who viewed at least one page in the week.
+  formula: Distinct visitor ids with at least one page view
+
+events:
+  - name: $pageview
+    description: One page load or client-side route change, captured in the browser.
+    also_called: [page_view, Page Viewed, page]
+    properties:
+      - name: $session_id
+        description: Set by the analytics SDK; ties the page view to a visit.
+      - name: $device_type
+        description: Mobile, Desktop or Tablet.
+
+numerator:
+  label: Unique visitors
+  aggregate: unique_users
+  event: $pageview
+
+noise:
+  type: poisson
+  min_denominator: 100
+  volume_unit: visitors a week
+  typical: 30000
+  reference_volumes: [1000, 5000, 25000, 100000]
+
+example:
+  business: store
+  level: 390000
+  volume: 390000
+  trend: 0.12
+
+drivers:
+  - id: identity
+    label: Cookies and identity
+    breakdown: $browser
+    dropped:
+      check: Did a consent banner, a cookie change or a merge of anonymous and logged-in people cut the count?
+      yes: Visitors fall while sessions hold, from the day of the change, often in one browser.
+    spiked:
+      check: Did cookies start resetting, so the same people now count as new visitors?
+      yes: Visitors and new-visitor share jump together while sessions per visitor fall, often on Safari or after a domain change.
+  - id: calendar
+    label: Calendar
+    feed: shopping
+    dropped:
+      check: Was last week a sale, holiday or gifting week that this week can't match?
+      yes: The same pair of weeks last year shows the same fall once aligned on the event.
+    spiked:
+      check: Is this a sale, holiday or gifting week that brings people who don't usually visit?
+      yes: The same week last year shows the same jump, mostly in new visitors.
+  - id: new-visitors
+    label: New visitors
+    metric: new-visitor-share
+    dropped:
+      check: Did fewer first-time visitors arrive while returning visitors held?
+      yes: New-visitor share falls and the drop sits in prospecting channels.
+    spiked:
+      check: Is the rise all first-time visitors from one source?
+      yes: New-visitor share jumps with one campaign, post or press mention.
+  - id: paid
+    label: Paid traffic
+    metric: paid-sessions
+    feed: ad-platforms
+    dropped:
+      check: Did prospecting spend fall or a campaign stop serving?
+      yes: Paid sessions fall in the same days, and visitors from paid sources account for most of the drop.
+    spiked:
+      check: Did a prospecting campaign or a budget increase start?
+      yes: Paid sessions rise and the new people come from one platform.
+  - id: organic
+    label: Organic search
+    metric: organic-sessions
+    feed: google-search
+    dropped:
+      check: Did search traffic fall after a Google update or lost rankings?
+      yes: Organic sessions fall from the date of the update.
+    spiked:
+      check: Did a ranking gain or a seasonal search term bring new people?
+      yes: Organic sessions rise on a few landing pages.
+
+diagnose_order: [identity, calendar, new-visitors, paid, organic]
+
+related: [sessions, new-visitor-share, sessions-per-user, wau, organic-sessions]
+
+prose:
+  why_it_matters: >-
+    Unique visitors tell you how many people the store reached, which sessions can't: a loyal
+    visitor coming back five times is five sessions and one person. When sessions grow and
+    visitors don't, the same people are visiting more; when visitors grow, reach is growing.
+    A store with 390,000 visitors a week can lose 3% of them to a cookie change without a
+    single real person leaving.
+  pitfalls:
+    - A visitor is a browser, not a person. Phone and laptop count twice, and Safari's seven-day limit on script-set cookies makes anyone who returns after more than a week look new.
+    - Weekly unique visitors don't add up to monthly unique visitors. Never sum weeks; count distinct people over the longer window.
+    - In a warehouse, count the anonymous id for visitors who never log in. Counting only user_id drops most of a store's traffic.
+    - Merging anonymous and identified people, as PostHog does on login, can lower past weeks' counts after the fact. Freeze last week's number when you report it.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

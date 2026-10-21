@@ -1,0 +1,290 @@
+id: referral-sessions
+name: Referral sessions
+aliases:
+  - Referral traffic
+  - Referral visits
+  - Referring site traffic
+family: traffic
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: Visits that arrived through a link on another website that is not a search engine, a social network or an ad.
+  formula: Sessions whose first page view came from another site (not search, social, a payment page or this site) with no campaign tag, or tagged utm_medium=referral
+
+events:
+  - name: $pageview
+    description: One page load or client-side route change, captured in the browser.
+    also_called: [page_view, Page Viewed, page]
+    properties:
+      - name: $session_id
+        description: Set by the analytics SDK; the session's first page view decides its channel.
+      - name: $referring_domain
+        description: The domain the visitor came from, or $direct when there was none.
+      - name: $host
+        description: This site's own domain, so internal links and returns from checkout don't count as referrals.
+      - name: utm_medium
+        description: The campaign medium from the landing URL. When set, it decides the channel.
+
+numerator:
+  label: Referral sessions
+  aggregate: unique_sessions
+  event: $pageview
+  where:
+    - property: utm_medium
+      op: is_not_set
+    - property: $referring_domain
+      op: not_in
+      value: [$direct, www.google.com, www.bing.com, duckduckgo.com, www.facebook.com, l.facebook.com, t.co, www.instagram.com]
+
+queries:
+  hogql: |-
+    -- Referral sessions per week: sessions whose first page view came from another site that is not a search engine, social network, payment page or this site, and carried no campaign tag (or is tagged utm_medium=referral). Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT w.week AS week, coalesce(s.sessions, 0) AS value
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, count() AS sessions
+      FROM (
+        SELECT
+          $session_id AS session_id,
+          toMonday(toTimeZone(min(timestamp), 'UTC')) AS week,
+          argMin(lower(coalesce(properties.utm_medium, '')), timestamp) AS medium,
+          argMin(lower(coalesce(properties.$referring_domain, '')), timestamp) AS referrer,
+          argMin(lower(coalesce(properties.$host, '')), timestamp) AS host,
+          argMin(coalesce(properties.gclid, properties.gbraid, properties.wbraid, properties.msclkid, '') <> '', timestamp) AS ad_click
+        FROM events
+        WHERE event = '$pageview'
+          AND $session_id != ''
+          AND timestamp >= now() - toIntervalWeek(27)
+          AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+        GROUP BY session_id
+      )
+      WHERE NOT (match(medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
+        AND (
+          medium = 'referral'
+          OR (
+            medium = ''
+            AND referrer NOT IN ('', '$direct')
+            AND replaceRegexpOne(referrer, '^www[.]', '') <> replaceRegexpOne(host, '^www[.]', '')
+            AND NOT match(referrer, '^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$')
+            AND NOT match(referrer, '^(www[.]|m[.]|l[.]|lm[.]|out[.])?(facebook|instagram|linkedin|pinterest|reddit|tiktok|youtube|twitter)[.][a-z.]+$|^(x[.]com|t[.]co|lnkd[.]in|threads[.]net|bsky[.]app)$')
+            AND NOT match(referrer, '^(.*[.])?(paypal|stripe|klarna|afterpay|affirm)[.]com$|^shop[.]app$')
+          )
+        )
+      GROUP BY week
+    ) AS s ON s.week = w.week
+    ORDER BY week
+  postgres: |-
+    -- Referral sessions per week: sessions whose first page view came from another site that is not a search engine, social network, payment page or this site, and carried no campaign tag (or is tagged utm_medium=referral). Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    entries AS (
+      SELECT DISTINCT ON (session_id)
+        session_id,
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week,
+        lower(coalesce(properties->>'utm_medium', '')) AS medium,
+        lower(coalesce(properties->>'$referring_domain', '')) AS referrer,
+        lower(coalesce(properties->>'$host', '')) AS host,
+        coalesce(properties->>'gclid', properties->>'gbraid', properties->>'wbraid', properties->>'msclkid', '') <> '' AS ad_click
+      FROM events
+      WHERE event_name = '$pageview'
+        AND session_id <> ''
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+      ORDER BY session_id, occurred_at
+    ),
+    weekly AS (
+      SELECT week, count(*) AS sessions
+      FROM entries
+      WHERE NOT (medium ~ '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$' OR ad_click)
+        AND (
+          medium = 'referral'
+          OR (
+            medium = ''
+            AND referrer NOT IN ('', '$direct')
+            AND regexp_replace(referrer, '^www[.]', '') <> regexp_replace(host, '^www[.]', '')
+            AND NOT referrer ~ '^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$'
+            AND NOT referrer ~ '^(www[.]|m[.]|l[.]|lm[.]|out[.])?(facebook|instagram|linkedin|pinterest|reddit|tiktok|youtube|twitter)[.][a-z.]+$|^(x[.]com|t[.]co|lnkd[.]in|threads[.]net|bsky[.]app)$'
+            AND NOT referrer ~ '^(.*[.])?(paypal|stripe|klarna|afterpay|affirm)[.]com$|^shop[.]app$'
+          )
+        )
+      GROUP BY week
+    )
+    SELECT w.week, coalesce(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
+  bigquery: |-
+    -- Referral sessions per week: sessions whose first page view came from another site that is not a search engine, social network, payment page or this site, and carried no campaign tag (or is tagged utm_medium=referral). Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    entries AS (
+      SELECT
+        session_id,
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
+        LOWER(COALESCE(JSON_VALUE(properties, '$.utm_medium'), '')) AS medium,
+        LOWER(COALESCE(JSON_VALUE(properties, '$."$referring_domain"'), '')) AS referrer,
+        LOWER(COALESCE(JSON_VALUE(properties, '$."$host"'), '')) AS host,
+        COALESCE(JSON_VALUE(properties, '$.gclid'), JSON_VALUE(properties, '$.gbraid'), JSON_VALUE(properties, '$.wbraid'), JSON_VALUE(properties, '$.msclkid'), '') <> '' AS ad_click
+      FROM events
+      WHERE event_name = '$pageview'
+        AND session_id <> ''
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY occurred_at) = 1
+    ),
+    weekly AS (
+      SELECT week, COUNT(*) AS sessions
+      FROM entries
+      WHERE NOT (REGEXP_CONTAINS(medium, r'^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
+        AND (
+          medium = 'referral'
+          OR (
+            medium = ''
+            AND referrer NOT IN ('', '$direct')
+            AND REGEXP_REPLACE(referrer, r'^www[.]', '') <> REGEXP_REPLACE(host, r'^www[.]', '')
+            AND NOT REGEXP_CONTAINS(referrer, r'^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$')
+            AND NOT REGEXP_CONTAINS(referrer, r'^(www[.]|m[.]|l[.]|lm[.]|out[.])?(facebook|instagram|linkedin|pinterest|reddit|tiktok|youtube|twitter)[.][a-z.]+$|^(x[.]com|t[.]co|lnkd[.]in|threads[.]net|bsky[.]app)$')
+            AND NOT REGEXP_CONTAINS(referrer, r'^(.*[.])?(paypal|stripe|klarna|afterpay|affirm)[.]com$|^shop[.]app$')
+          )
+        )
+      GROUP BY week
+    )
+    SELECT w.week, COALESCE(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- Referral sessions per week: sessions whose first page view came from another site that is not a search engine, social network, payment page or this site, and carried no campaign tag (or is tagged utm_medium=referral). Each session counts in the week of its first page view. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    entries AS (
+      SELECT
+        session_id,
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week,
+        LOWER(COALESCE(properties:"utm_medium"::string, '')) AS medium,
+        LOWER(COALESCE(properties:"$referring_domain"::string, '')) AS referrer,
+        LOWER(COALESCE(properties:"$host"::string, '')) AS host,
+        COALESCE(properties:"gclid"::string, properties:"gbraid"::string, properties:"wbraid"::string, properties:"msclkid"::string, '') <> '' AS ad_click
+      FROM events
+      WHERE event_name = '$pageview'
+        AND session_id <> ''
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY occurred_at) = 1
+    ),
+    weekly AS (
+      SELECT week, COUNT(*) AS sessions
+      FROM entries
+      WHERE NOT (REGEXP_LIKE(medium, '^(.*cp.*|ppc|retargeting|paid.*|display|banner|interstitial|expandable)$') OR ad_click)
+        AND (
+          medium = 'referral'
+          OR (
+            medium = ''
+            AND referrer NOT IN ('', '$direct')
+            AND REGEXP_REPLACE(referrer, '^www[.]', '') <> REGEXP_REPLACE(host, '^www[.]', '')
+            AND NOT REGEXP_LIKE(referrer, '^(www[.])?(google|bing|duckduckgo|yandex|baidu|ecosia|naver|seznam|qwant|startpage)[.][a-z.]+$|^(.*[.])?search[.](yahoo|brave)[.]com$|^com[.]google[.]android[.]googlequicksearchbox$')
+            AND NOT REGEXP_LIKE(referrer, '^(www[.]|m[.]|l[.]|lm[.]|out[.])?(facebook|instagram|linkedin|pinterest|reddit|tiktok|youtube|twitter)[.][a-z.]+$|^(x[.]com|t[.]co|lnkd[.]in|threads[.]net|bsky[.]app)$')
+            AND NOT REGEXP_LIKE(referrer, '^(.*[.])?(paypal|stripe|klarna|afterpay|affirm)[.]com$|^shop[.]app$')
+          )
+        )
+      GROUP BY week
+    )
+    SELECT w.week, COALESCE(s.sessions, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS s ON s.week = w.week
+    ORDER BY w.week;
+
+noise:
+  type: poisson
+  min_denominator: 50
+  volume_unit: referral sessions a week
+  typical: 2500
+  reference_volumes: [200, 1000, 5000, 25000]
+
+example:
+  business: store
+  level: 21000
+  volume: 21000
+  trend: 0.05
+
+drivers:
+  - id: self-referrals
+    label: Self-referrals and classification
+    breakdown: $referring_domain
+    dropped:
+      check: Did a referrer change, a new domain or stricter referrer policy turn referrals into direct visits?
+      yes: Direct sessions rise by about as much as referrals fall, from the day of the change.
+    spiked:
+      check: Are your own subdomains, a payment page or a login provider showing up as referrers?
+      yes: The top new referrer is a checkout, payment, help-centre or sign-in domain you own or use.
+  - id: referral-spam
+    label: Bots and referral spam
+    breakdown: $geoip_country_code
+    dropped:
+      check: Did a spam referrer that used to send junk visits stop?
+      yes: One unfamiliar domain that bounced every time has disappeared.
+    spiked:
+      check: Is an unknown domain sending visits that bounce at once and never buy?
+      yes: One unfamiliar referrer explains the rise, with near-total bounce and no orders.
+  - id: top-referrer
+    label: Press, creators and partners
+    breakdown: $referring_domain
+    dropped:
+      check: Did a link that sent steady traffic come down, or did last week's press mention fade?
+      yes: One referring domain that sent many visits last week sends few this week.
+    spiked:
+      check: Did an article, a gift guide, a creator or a partner link to the store?
+      yes: One referring domain explains most of the rise; expect it to fade within one or two weeks.
+  - id: ai-assistants
+    label: AI assistants
+    dropped:
+      check: Did visits from chatgpt.com, perplexity.ai, gemini.google.com or copilot.microsoft.com fall?
+      yes: The AI assistant referrers send fewer visits, often after a model or citation change on their side.
+    spiked:
+      check: Are AI assistants citing the store more often?
+      yes: chatgpt.com, perplexity.ai and similar referrers grow steadily, landing on product and guide pages.
+  - id: affiliates
+    label: Affiliate and coupon sites
+    dropped:
+      check: Did an affiliate network, coupon site or marketplace listing stop linking?
+      yes: Referrals from coupon or affiliate domains fall and affiliate orders fall with them.
+    spiked:
+      check: Did a coupon or deal site start listing the store, possibly with a leaked code?
+      yes: A coupon domain grows and promo-code use rises with it.
+
+diagnose_order: [self-referrals, referral-spam, top-referrer, ai-assistants, affiliates]
+
+related: [sessions, organic-sessions, paid-sessions, new-visitor-share, promo-code-usage-rate]
+
+prose:
+  why_it_matters: >-
+    Referrals are earned traffic: press, gift guides, creators, partners and, more and more, AI
+    assistants that cite the store. They are spiky by nature, so a single article can double a
+    week and be gone the next. On a store with 21,000 referral sessions a week, the question is
+    always which one domain moved, not whether referrals did.
+  pitfalls:
+    - Payment pages, sign-in providers and your own subdomains show up as referrers when a visit restarts after them. This spec drops this site's domain and common payment pages; add others you see.
+    - Many apps and sites strip the referrer. Links from email clients, messaging apps and some social apps arrive as direct visits, not referrals.
+    - Referral spam sends fake visits with a made-up referrer. It never orders, so check orders from a new referrer before thanking anyone.
+    - Social networks and search engines are excluded here and counted in their own channels. Tools group the long tail differently, so referral totals rarely match GA4.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

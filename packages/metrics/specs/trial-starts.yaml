@@ -1,0 +1,113 @@
+id: trial-starts
+name: Trial starts
+aliases:
+  - Free trial starts
+  - New trials
+  - Trials started
+family: activation
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: People who started a free trial of a paid plan this week, each counted once.
+  formula: Distinct people with a trial_started event, by week
+
+events:
+  - name: trial_started
+    description: A free trial of a paid plan began, sent by the billing system or the server.
+    also_called: [Trial Started, start_trial, customer.subscription.created (status trialing)]
+    properties:
+      - name: plan
+        description: The plan being trialled.
+
+numerator:
+  label: People who started a trial
+  aggregate: unique_users
+  event: trial_started
+
+noise:
+  type: poisson
+  min_denominator: 20
+  volume_unit: trials a week
+  typical: 160
+  reference_volumes: [50, 150, 500, 2000]
+
+example:
+  business: saas
+  level: 160
+  volume: 160
+  trend: 0.2
+
+drivers:
+  - id: tracking
+    label: Trial event
+    breakdown: plan
+    dropped:
+      check: Did the trial event stop arriving from billing for one plan or one signup path?
+      yes: One plan falls to near zero while trials in the billing system hold.
+    spiked:
+      check: Is the event firing twice, or did a migration create trials for existing accounts?
+      yes: Trials recorded exceed trials in the billing system, or many trialists already pay.
+  - id: calendar
+    label: Holidays
+    feed: holidays
+    dropped:
+      check: Is this a holiday week in your main markets?
+      yes: The same week last year shows the same dip once aligned on the holiday.
+    spiked:
+      check: Is this the first full week back after a holiday, or a quarter start when budgets reset?
+      yes: The same week last year shows the same rise.
+  - id: trial-offer
+    label: Trial terms
+    dropped:
+      check: Did the offer get stricter, such as a card now required, a shorter trial or fewer plans with a trial?
+      yes: Trials fall from the day the terms changed, on every channel at once.
+    spiked:
+      check: Did the offer get easier, such as no card required or a longer trial?
+      yes: Trials jump from the day the terms changed; expect trial conversion to fall weeks later.
+  - id: signups
+    label: Signups
+    metric: signups
+    dropped:
+      check: Did fewer people sign up in the first place?
+      yes: Signups fall by about as much as trials, and the share of signups starting a trial holds.
+    spiked:
+      check: Did a wave of signups arrive, and are they real?
+      yes: Signups rise by about as much as trials; check activation before celebrating.
+  - id: activation
+    label: Reaching the paywall
+    metric: activation-rate
+    dropped:
+      check: Did fewer free users reach the point where a paid feature or a limit prompts a trial?
+      yes: Activation or usage of the gated feature falls while signups hold.
+    spiked:
+      check: Did a new limit or paid feature push more free users to try a paid plan?
+      yes: Trials started from in-app prompts jump from the day the change shipped.
+  - id: campaigns
+    label: Campaigns
+    feed: ad-platforms
+    dropped:
+      check: Did a campaign that sends people straight to a trial end?
+      yes: Trials from one source fall to their pre-campaign level.
+    spiked:
+      check: Did a promotion or a campaign drive people straight to a trial?
+      yes: Most of the extra trials come from one source in the days after launch.
+
+diagnose_order: [tracking, calendar, trial-offer, signups, activation, campaigns]
+
+related: [trial-conversion-rate, signups, new-paid-accounts, activation-rate, demo-request-rate]
+
+prose:
+  why_it_matters: >-
+    Trial starts are the bridge between interest and revenue: in a trial-led product, every new paid
+    account began here a few weeks earlier. At Copperline's 160 a week, chance moves the count by
+    about 22% either way, so one quiet week means little and three in a row is a pipeline problem.
+  pitfalls:
+    - Whether a card is required changes everything. Dropping the card requirement usually multiplies trial starts and divides conversion, so compare trials only within one policy.
+    - Trials that start automatically at signup are signups under another name. Read signups for demand and this for the share who choose a paid plan.
+    - A person who restarts a trial, or a teammate who starts one on the same account, is not new demand. Count first trials per account where accounts exist.
+    - Trials pulled forward by a discount or a deadline are followed by a quiet week. Read two-week sums around promotions.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

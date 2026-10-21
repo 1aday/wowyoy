@@ -1,0 +1,284 @@
+id: activation-rate
+name: Activation rate
+aliases:
+  - Aha moment rate
+  - User activation rate
+  - Signup-to-activation rate
+family: activation
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of people who signed up in a week who reached the product's activation milestone within 7 days of signing up.
+  formula: Signups who reached the activation milestone within 7 days ÷ signups, by signup week
+
+events:
+  - name: signed_up
+    description: An account created, sent by the server when the account exists, not when the form is submitted.
+    also_called: [sign_up, Signed Up, user_signed_up, account_created]
+    properties:
+      - name: method
+        description: How the account was created, such as email, google, sso or invite.
+      - name: plan
+        description: The plan chosen at signup, if any.
+  - name: activated
+    description: The product's key action, the one that best predicts a user is still active weeks later, such as a first report shared or a first project with data.
+    also_called: [Activated, user_activated, aha_moment]
+    properties:
+      - name: milestone
+        description: Which milestone fired, when a product tracks more than one.
+
+numerator:
+  label: Signups who activated within 7 days
+  aggregate: unique_users
+  event: activated
+denominator:
+  label: People who signed up
+  aggregate: unique_users
+  event: signed_up
+
+queries:
+  hogql: |-
+    -- Activation rate: of people whose first signup fell in each week, the share who reached the activation milestone within 7 days of signing up. Signup weeks 27 to 2 weeks before this one (Monday 00:00 UTC), oldest first; last week's signups are left out until their 7 days close.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT
+      w.week AS week,
+      coalesce(c.converted_people, 0) AS numerator,
+      coalesce(c.people, 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(2, 28))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, countIf(converted) AS converted_people, count() AS people
+      FROM (
+        SELECT
+          toMonday(s.start_at) AS week,
+          s.person_id AS person_id,
+          countIf(x.ts >= s.start_at AND x.ts < s.start_at + toIntervalDay(7)) > 0 AS converted
+        FROM (
+          SELECT person_id, min(toTimeZone(timestamp, 'UTC')) AS start_at
+          FROM events
+          WHERE event = 'signed_up'
+            AND person_id IS NOT NULL
+          GROUP BY person_id
+        ) AS s
+        LEFT JOIN (
+          SELECT person_id, toTimeZone(timestamp, 'UTC') AS ts
+          FROM events
+          WHERE event = 'activated'
+            AND timestamp >= now() - toIntervalWeek(29)
+        ) AS x ON x.person_id = s.person_id
+        WHERE toMonday(s.start_at) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(27) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(2)
+        GROUP BY week, person_id
+      )
+      GROUP BY week
+    ) AS c ON c.week = w.week
+    ORDER BY week
+  postgres: |-
+    -- Activation rate: of people whose first signup fell in each week, the share who reached the activation milestone within 7 days of signing up. Signup weeks 27 to 2 weeks before this one (Monday 00:00 UTC), oldest first; last week's signups are left out until their 7 days close.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '27 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '2 weeks',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    starts AS (
+      SELECT user_id, min(occurred_at AT TIME ZONE 'UTC') AS start_at
+      FROM events
+      WHERE event_name = 'signed_up'
+        AND user_id IS NOT NULL
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT
+        date_trunc('week', s.start_at)::date AS week,
+        s.user_id,
+        count(x.occurred_at) > 0 AS converted
+      FROM starts AS s
+      LEFT JOIN events AS x
+        ON x.user_id = s.user_id
+       AND x.event_name = 'activated'
+       AND x.occurred_at AT TIME ZONE 'UTC' >= s.start_at
+       AND x.occurred_at AT TIME ZONE 'UTC' < s.start_at + interval '7 days'
+      WHERE s.start_at >= date_trunc('week', now() AT TIME ZONE 'UTC') - interval '27 weeks'
+        AND s.start_at < date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week'
+      GROUP BY 1, 2
+    )
+    SELECT
+      w.week,
+      count(c.user_id) FILTER (WHERE c.converted) AS numerator,
+      count(c.user_id) AS denominator,
+      (count(c.user_id) FILTER (WHERE c.converted))::numeric / nullif(count(c.user_id), 0) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+  bigquery: |-
+    -- Activation rate: of people whose first signup fell in each week, the share who reached the activation milestone within 7 days of signing up. Signup weeks 27 to 2 weeks before this one (Monday 00:00 UTC), oldest first; last week's signups are left out until their 7 days close.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 27 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 2 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    starts AS (
+      SELECT user_id, MIN(occurred_at) AS start_at
+      FROM events
+      WHERE event_name = 'signed_up'
+        AND user_id IS NOT NULL
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT
+        DATE_TRUNC(DATE(s.start_at), ISOWEEK) AS week,
+        s.user_id,
+        COUNT(x.occurred_at) > 0 AS converted
+      FROM starts AS s
+      LEFT JOIN events AS x
+        ON x.user_id = s.user_id
+       AND x.event_name = 'activated'
+       AND x.occurred_at >= s.start_at
+       AND x.occurred_at < TIMESTAMP_ADD(s.start_at, INTERVAL 7 DAY)
+      WHERE s.start_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 27 WEEK))
+        AND s.start_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK))
+      GROUP BY week, s.user_id
+    )
+    SELECT
+      w.week,
+      COUNTIF(c.converted) AS numerator,
+      COUNT(c.user_id) AS denominator,
+      SAFE_DIVIDE(COUNTIF(c.converted), COUNT(c.user_id)) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- Activation rate: of people whose first signup fell in each week, the share who reached the activation milestone within 7 days of signing up. Signup weeks 27 to 2 weeks before this one (Monday 00:00 UTC), oldest first; last week's signups are left out until their 7 days close.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 - ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    starts AS (
+      SELECT user_id, MIN(occurred_at) AS start_at
+      FROM events
+      WHERE event_name = 'signed_up'
+        AND user_id IS NOT NULL
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT
+        DATEADD(day, 1 - DAYOFWEEKISO(s.start_at), s.start_at::date) AS week,
+        s.user_id,
+        COUNT(x.occurred_at) > 0 AS converted
+      FROM starts AS s
+      LEFT JOIN events AS x
+        ON x.user_id = s.user_id
+       AND x.event_name = 'activated'
+       AND x.occurred_at >= s.start_at
+       AND x.occurred_at < DATEADD(day, 7, s.start_at)
+      WHERE s.start_at >= DATEADD(week, -27, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND s.start_at < DATEADD(week, -1, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+      GROUP BY 1, 2
+    )
+    SELECT
+      w.week,
+      COUNT_IF(c.converted) AS numerator,
+      COUNT(c.user_id) AS denominator,
+      COUNT_IF(c.converted)::float / NULLIF(COUNT(c.user_id), 0) AS value
+    FROM weeks AS w
+    LEFT JOIN cohort AS c ON c.week = w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+
+noise:
+  type: binomial
+  min_denominator: 100
+  volume_unit: signups in the cohort
+  typical: 0.34
+
+example:
+  business: saas
+  level: 0.34
+  volume: 2200
+  trend: 0.06
+
+drivers:
+  - id: tracking
+    label: Activation event
+    dropped:
+      check: Did the activated event stop firing on one platform, or did its milestone change in a release?
+      yes: Activation falls overnight on one platform or app version while usage of the underlying feature holds.
+    spiked:
+      check: Was the milestone made easier, or is the event now firing on a step everyone passes?
+      yes: Activation jumps overnight with no change in week-4 retention for the same cohorts.
+  - id: calendar
+    label: Holidays
+    feed: holidays
+    dropped:
+      check: Did the cohort's first 7 days include a holiday, when people sign up and then go away?
+      yes: The same cohort weeks last year show the same dip.
+    spiked:
+      check: Is this the first cohort back after a holiday, full of people with a job to get done?
+      yes: The same cohort weeks last year show the same rise.
+  - id: signup-quality
+    label: Who signed up
+    metric: signups
+    breakdown: utm_source
+    dropped:
+      check: Did the cohort include a wave of low-intent, bot or campaign signups?
+      yes: Signups from one source rose that week and activate at a fraction of the usual rate.
+    spiked:
+      check: Did a low-intent source stop, leaving a smaller cohort of committed signups?
+      yes: Signups from one source fell that week while activation from the other sources held.
+  - id: product-errors
+    label: Errors and outages
+    metric: error-rate
+    feed: cloudflare
+    dropped:
+      check: Did errors, an outage or a slow integration hit the setup path during the cohort's first week?
+      yes: Error rate or failed setup steps rose on the days the cohort was trying to get started.
+    spiked:
+      check: Did a fix to a broken setup step ship just before the cohort arrived?
+      yes: The step that failed before now completes, and activation recovers from the release date.
+  - id: onboarding
+    label: Onboarding
+    metric: onboarding-completion-rate
+    dropped:
+      check: Did fewer people finish onboarding, after a step was added or broke?
+      yes: Onboarding completion fell for the same cohorts by about as much.
+    spiked:
+      check: Did a shorter onboarding, a template or a guided setup ship?
+      yes: Onboarding completion rose for the same cohorts, and more of them reached the milestone.
+  - id: plan-split
+    label: Plan and signup method
+    breakdown: plan
+    dropped:
+      check: Is the drop in one plan, signup method or company size?
+      yes: One segment's activation fell while the others held.
+    spiked:
+      check: Is the rise in one plan, signup method or company size?
+      yes: One segment's activation rose, often the one a recent change was aimed at.
+
+diagnose_order: [tracking, calendar, signup-quality, product-errors, onboarding, plan-split]
+
+related: [onboarding-completion-rate, time-to-value, signups, week-1-retention, trial-conversion-rate]
+
+prose:
+  why_it_matters: >-
+    Activation is where most signups are lost: at Copperline two in three never reach the
+    milestone. It is also the earliest number that predicts revenue, because the milestone is
+    chosen as the action that best separates people who stay from people who leave. A fixed 7-day window makes cohorts comparable and lets each week be judged two
+    weeks later, not months. With 2,200 signups in a cohort, a move of under 3 points is still chance.
+  pitfalls:
+    - The milestone defines the metric. Pick the action that best separates users still active a month later from those who left, then don't change it without restarting the series.
+    - Only cohorts whose 7 days have closed are reported, so the latest point is the signups of two weeks ago. Counting the current week makes activation look like it collapsed.
+    - Activations this week ÷ signups this week mixes cohorts and can swing wildly after a big signup week. This spec follows each signup cohort instead.
+    - In team products an invited teammate who never sets anything up is not a failed activation of the account. Track activation per account as well as per person.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

@@ -1,0 +1,200 @@
+id: active-customers
+name: Active customers
+aliases:
+  - Active buyers
+  - 12-month active customers
+  - Active customer base
+family: customers
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: Customers who placed at least one order in the 52 weeks ending this week.
+  formula: Distinct customers with an order in the trailing 52 weeks, at each week's end
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: customer_id
+        description: The store's customer id, shared by guest and logged-in orders with the same email.
+      - name: is_first_order
+        description: True when the store has no earlier order from this customer, from its own customer records.
+
+numerator:
+  label: Customers with an order in 52 weeks
+  aggregate: unique_users
+  event: order_completed
+
+queries:
+  hogql: |-
+    -- Active customers: distinct customers with an order in the 52 weeks ending each week (Monday 00:00 UTC), for each of the last 26 complete weeks, oldest first. A customer is the order's customer_id, or its person_id when that is missing.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT w.week AS week, coalesce(a.customers, 0) AS value
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT s.week AS week, uniqExact(o.customer_id) AS customers
+      FROM (
+        SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+      ) AS s
+      CROSS JOIN (
+        SELECT DISTINCT
+          coalesce(properties.customer_id, toString(person_id)) AS customer_id,
+          toMonday(toTimeZone(timestamp, 'UTC')) AS order_week
+        FROM events
+        WHERE event = 'order_completed'
+          AND timestamp >= now() - toIntervalWeek(78)
+          AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(77) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+      ) AS o
+      WHERE o.order_week BETWEEN s.week - toIntervalWeek(51) AND s.week
+      GROUP BY week
+    ) AS a ON a.week = w.week
+    ORDER BY week
+  postgres: |-
+    -- Active customers: distinct customers with an order in the 52 weeks ending each week (Monday 00:00 UTC), for each of the last 26 complete weeks, oldest first. A customer is the order's customer_id, or its user_id when that is missing.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    orders AS (
+      SELECT DISTINCT
+        coalesce(properties->>'customer_id', user_id) AS customer_id,
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week
+      FROM events
+      WHERE event_name = 'order_completed'
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '77 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+    )
+    SELECT w.week, count(DISTINCT o.customer_id) AS value
+    FROM weeks AS w
+    LEFT JOIN orders AS o ON o.week BETWEEN w.week - 357 AND w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+  bigquery: |-
+    -- Active customers: distinct customers with an order in the 52 weeks ending each week (Monday 00:00 UTC), for each of the last 26 complete weeks, oldest first. A customer is the order's customer_id, or its user_id when that is missing.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    orders AS (
+      SELECT DISTINCT
+        COALESCE(JSON_VALUE(properties, '$.customer_id'), user_id) AS customer_id,
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week
+      FROM events
+      WHERE event_name = 'order_completed'
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 77 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+    )
+    SELECT w.week, COUNT(DISTINCT o.customer_id) AS value
+    FROM weeks AS w
+    LEFT JOIN orders AS o ON o.week BETWEEN DATE_SUB(w.week, INTERVAL 51 WEEK) AND w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- Active customers: distinct customers with an order in the 52 weeks ending each week (Monday 00:00 UTC), for each of the last 26 complete weeks, oldest first. A customer is the order's customer_id, or its user_id when that is missing.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    orders AS (
+      SELECT DISTINCT
+        COALESCE(properties:"customer_id"::string, user_id) AS customer_id,
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week
+      FROM events
+      WHERE event_name = 'order_completed'
+        AND occurred_at >= DATEADD(week, -77, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+    )
+    SELECT w.week, COUNT(DISTINCT o.customer_id) AS value
+    FROM weeks AS w
+    LEFT JOIN orders AS o ON o.week BETWEEN DATEADD(week, -51, w.week) AND w.week
+    GROUP BY w.week
+    ORDER BY w.week;
+
+noise:
+  type: process
+  min_denominator: 100
+  volume_unit: active customers
+  typical: 470000
+
+example:
+  business: store
+  level: 470000
+  volume: 470000
+  trend: 0.18
+
+drivers:
+  - id: identity
+    label: Customer records
+    dropped:
+      check: Did a merge or deduplication of customer records collapse several ids into one?
+      yes: The count falls on one day with no change in orders.
+    spiked:
+      check: Did customer matching break, or an import add customers who never ordered here?
+      yes: The count jumps on one day while orders hold, and many of the new customers have a single old order.
+  - id: roll-off
+    label: Customers leaving the window
+    dropped:
+      check: Is a large week from a year ago, such as last Black Friday, leaving the 52-week window?
+      yes: The week 52 weeks back brought far more first-time buyers than usual, and few of them returned.
+    spiked:
+      check: Is an unusually small week from a year ago leaving the window?
+      yes: The week 52 weeks back was quiet, so fewer customers lapsed this week than joined.
+  - id: calendar
+    label: Calendar
+    feed: shopping
+    dropped:
+      check: Is this the quiet stretch after the holidays, when few new buyers arrive to replace those leaving?
+      yes: The same weeks last year show the same flat or falling count.
+    spiked:
+      check: Is this a sale or holiday week adding many first-time buyers at once?
+      yes: The same week last year shows the same jump once aligned on the event.
+  - id: new-customers
+    label: New customers
+    metric: new-customers
+    dropped:
+      check: Did fewer first-time buyers arrive to replace the customers rolling off?
+      yes: New customers have run below the count leaving the window for several weeks.
+    spiked:
+      check: Did a campaign or launch bring a wave of first-time buyers?
+      yes: New customers this week are well above their usual range.
+  - id: win-back
+    label: Lapsed customers returning
+    metric: returning-customers
+    dropped:
+      check: Did win-back emails or offers to lapsed customers stop?
+      yes: Orders from customers whose previous order was over a year ago fall to near zero.
+    spiked:
+      check: Did a win-back campaign bring lapsed customers back?
+      yes: Many of this week's returning customers had last ordered more than 52 weeks ago.
+
+diagnose_order: [identity, roll-off, calendar, new-customers, win-back]
+
+related: [new-customers, returning-customers, repeat-purchase-rate, purchase-frequency, customer-lifetime-value]
+
+prose:
+  why_it_matters: >-
+    Active customers is the size of the living customer base: everyone who bought in the past year
+    and can be sold to again. It is a stock that moves by inflows (new and won-back customers) minus
+    outflows (customers whose last order just turned a year old), so it barely moves week to week and
+    any lasting move matters. Northwind's base of about 470,000 grows only while each week's new and
+    returning buyers outnumber the ones rolling off.
+  pitfalls:
+    - Most of the weekly change is roll-off, the customers who bought exactly 52 weeks ago and not since. A big sale a year ago means a big drop now, and it is known in advance.
+    - Twelve months is the usual window for a store; for a product bought every week, 90 days is fairer. Pick one window and never mix them.
+    - Duplicate customer records inflate the base. Count the store's customer id, not browsers or emails typed differently.
+    - Counting everyone who ever bought includes people who will never buy again and can only grow. An active base must be able to shrink.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

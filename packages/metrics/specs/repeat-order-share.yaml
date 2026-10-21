@@ -1,0 +1,119 @@
+id: repeat-order-share
+name: Repeat order share
+aliases:
+  - Repeat share
+  - Returning customer order share
+  - Share of orders from returning customers
+family: customers
+catalog_id: repeat_share
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of this week's orders placed by customers who had ordered before.
+  formula: Orders not flagged as a first order ÷ orders with the first-order flag set
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: is_first_order
+        description: True when the store has no earlier order from this customer, from its own customer records.
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+
+numerator:
+  label: Repeat orders
+  aggregate: count
+  event: order_completed
+  where:
+    - property: is_first_order
+      op: eq
+      value: false
+denominator:
+  label: Orders
+  aggregate: count
+  event: order_completed
+  where:
+    - property: is_first_order
+      op: is_set
+
+noise:
+  type: binomial
+  min_denominator: 100
+  volume_unit: orders a week
+  typical: 0.38
+
+example:
+  business: store
+  level: 0.39
+  volume: 13300
+  trend: 0.03
+  season: -0.5
+
+drivers:
+  - id: tracking
+    label: First-order flag
+    dropped:
+      check: Did a checkout or account change reset order history, so repeat buyers are flagged as first orders?
+      yes: The share falls overnight while repeat orders from email and logged-in customers hold.
+    spiked:
+      check: Did an import or a customer merge mark first orders as repeat, or did the flag stop being set on first orders?
+      yes: The share jumps on one day and the count of flagged first orders falls far below new customers in the store admin.
+  - id: calendar
+    label: Calendar
+    feed: shopping
+    dropped:
+      check: Is this a sale or holiday week that brings in first-time buyers?
+      yes: The same week last year shows the same dip; Black Friday weeks often run several points lower.
+    spiked:
+      check: Is this the quiet week after a sale, or a members-only or loyalty event?
+      yes: The same week last year shows the same rise once aligned on the event.
+  - id: new-customers
+    label: New customers
+    metric: new-customers
+    dropped:
+      check: Did new customers rise? A strong acquisition week lowers the share with no change in loyalty.
+      yes: New customers are up while returning customers hold.
+    spiked:
+      check: Did new customers fall, for example after paid spend was cut?
+      yes: New customers are down while returning customers hold; the share rose by subtraction.
+  - id: returning-customers
+    label: Returning customers
+    metric: returning-customers
+    dropped:
+      check: Did fewer existing customers come back this week?
+      yes: Returning customers fall while new customers hold.
+    spiked:
+      check: Did more existing customers come back, from a campaign, a restock or a loyalty offer?
+      yes: Returning customers rise while new customers hold.
+  - id: email
+    label: Email and retention flows
+    metric: email-click-rate
+    dropped:
+      check: Did a regular campaign or flow fail to send, or land in spam?
+      yes: Email clicks fall on the days repeat orders do.
+    spiked:
+      check: Did a campaign go to the whole list?
+      yes: Repeat orders cluster in the two days after the send.
+
+diagnose_order: [tracking, calendar, new-customers, returning-customers, email]
+
+related: [new-customers, returning-customers, repeat-purchase-rate, orders, new-customer-revenue-share]
+
+prose:
+  why_it_matters: >-
+    Repeat order share says how much of a week's demand the store didn't have to buy. Because it is
+    a share, it moves when either side moves: a strong acquisition week lowers it with no change in
+    loyalty. At 13,300 orders a week a move of up to about 1.2 points can be chance; past that, check which
+    side changed before calling it retention.
+  pitfalls:
+    - A share falls when new customers rise. Read it with the new and returning customer counts before calling it a loyalty problem.
+    - Black Friday and launch weeks bring a flood of first orders and pull the share down by several points. Compare with the same week last year.
+    - Orders without the first-order flag are left out of both sides. If many orders lack it, fix the tracking first, because the share of a subset can drift on its own.
+    - This is a share of orders this week, not repeat purchase rate, which is a share of customers over a year. The two are often quoted under the same name.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

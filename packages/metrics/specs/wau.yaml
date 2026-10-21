@@ -1,0 +1,113 @@
+id: wau
+name: Weekly active users
+aliases:
+  - WAU
+  - Weekly active users (WAU)
+  - Weekly actives
+family: engagement
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: The number of distinct people active at least once in the week, Monday to Sunday UTC.
+  formula: Distinct people with any event in the week
+
+events:
+  - name: "*"
+    description: Any event a person sends. Activity, not one specific action; the same definition as DAU and MAU.
+    also_called: [All events, Any event, Active event]
+    properties:
+      - name: $os
+        description: The operating system, for splitting by platform.
+
+numerator:
+  label: Weekly active users
+  aggregate: unique_users
+  event: "*"
+
+noise:
+  type: poisson
+  min_denominator: 100
+  volume_unit: weekly active users
+  typical: 52000
+
+example:
+  business: app
+  level: 52000
+  volume: 52000
+  trend: 0.15
+
+drivers:
+  - id: tracking
+    label: Tracking and bots
+    dropped:
+      check: Did an SDK update, consent banner or ad blocker stop events from one platform or app version?
+      yes: One platform or version goes quiet from the day of a release while the others hold.
+    spiked:
+      check: Is the rise real people, or bots, duplicated ids, or a background event now counting as activity?
+      yes: Events per active person fall sharply, or one event, app version or user agent accounts for the new actives.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Is this a holiday week, when routines break?
+      yes: The same week last year shows the same dip once aligned on the holiday.
+    spiked:
+      check: Is this a seasonal high for the product?
+      yes: The same weeks last year show the same rise.
+  - id: platform
+    label: Platform and releases
+    breakdown: $os
+    feed: app-stores
+    dropped:
+      check: Is the drop on one platform only, after a release, a store rejection or an OS update?
+      yes: One platform falls from the release date while the others hold.
+    spiked:
+      check: Did a release or a store feature lift one platform?
+      yes: One platform rises from the day the release or feature went live.
+  - id: retained
+    label: Retained from last week
+    dropped:
+      check: Did fewer of last week's active people come back this week?
+      yes: People active in both weeks fall while new and resurrected people hold.
+    spiked:
+      check: Did more of last week's active people come back?
+      yes: People active in both weeks rise while new and resurrected people hold.
+  - id: new-users
+    label: New users
+    metric: signups
+    dropped:
+      check: Did fewer new people arrive?
+      yes: New people fall by about as many as WAU did.
+    spiked:
+      check: Did a launch, a press mention or a paid campaign bring a wave of new people?
+      yes: New people explain the rise; whether they stay shows in week 1 retention.
+  - id: resurrected
+    label: Resurrected users
+    metric: resurrected-users
+    dropped:
+      check: Did fewer lapsed people come back this week?
+      yes: Resurrected users fall below their usual range, often because a win-back campaign skipped a week.
+    spiked:
+      check: Did a win-back campaign, or a quiet week before, bring lapsed people back?
+      yes: Resurrected users explain the rise; most return on the campaign's send days.
+
+diagnose_order: [tracking, calendar, platform, retained, new-users, resurrected]
+
+related: [dau, mau, stickiness, resurrected-users, signups]
+
+prose:
+  why_it_matters: >-
+    WAU counts everyone who showed up at least once in the week, which suits products people use
+    a few times a week rather than every day. It is the sum of three groups, people retained from
+    last week, new people and people back after a gap, and every real move in WAU is a move in
+    one of them. At 52,000, chance alone moves it by about 1.2%.
+  pitfalls:
+    - WAU is not seven times DAU, because the same people show up on several days. Never add daily counts to get a weekly one.
+    - Passive events such as push notifications received and background syncs count devices that did nothing. Use the same activity definition as DAU and MAU.
+    - A holiday week lowers WAU for work tools and can lift it for consumer apps. Compare with the same week last year.
+    - A campaign can lift WAU with new people while retention falls underneath. Split WAU into retained, new and resurrected before calling it growth.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

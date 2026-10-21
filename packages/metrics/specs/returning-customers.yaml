@@ -1,0 +1,112 @@
+id: returning-customers
+name: Returning customers
+aliases:
+  - Repeat customers
+  - Returning buyers
+  - Repeat buyers
+family: customers
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: Customers who placed an order this week and had ordered at least once before, each counted once.
+  formula: Distinct customers with an order not flagged as their first, by order week
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: is_first_order
+        description: True when the store has no earlier order from this customer, from its own customer records.
+      - name: customer_id
+        description: The store's customer id, shared by guest and logged-in orders with the same email.
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+
+numerator:
+  label: Customers with a repeat order
+  aggregate: unique_users
+  event: order_completed
+  where:
+    - property: is_first_order
+      op: eq
+      value: false
+
+noise:
+  type: poisson
+  min_denominator: 30
+  volume_unit: returning customers a week
+  typical: 4700
+
+example:
+  business: store
+  level: 5000
+  volume: 5000
+  trend: 0.2
+
+drivers:
+  - id: identity
+    label: Customer matching
+    dropped:
+      check: Did logins, guest checkout or customer matching change, so returning buyers are now recorded as new?
+      yes: Returning customers fall, new customers rise by about the same number, and total orders hold.
+    spiked:
+      check: Did a customer merge or import link old guest orders to accounts?
+      yes: Returning customers jump on the day of the import with no matching rise in orders.
+  - id: calendar
+    label: Calendar
+    feed: shopping
+    dropped:
+      check: Was last week a sale or holiday week, or is this the lull after one?
+      yes: The same week last year shows the same dip once aligned on the event.
+    spiked:
+      check: Is this a sale, a holiday or a payday week that brings existing customers back?
+      yes: The same week last year shows the same jump once aligned on the event.
+  - id: email
+    label: Email and retention flows
+    metric: email-click-rate
+    dropped:
+      check: Did fewer campaign or flow emails go out, or start landing in spam?
+      yes: Emails delivered or clicks fall, and repeat orders from email fall on the same days.
+    spiked:
+      check: Did a campaign or a sale announcement go to the whole list?
+      yes: Repeat orders cluster in the two days after the send.
+  - id: stock
+    label: Bestsellers in stock
+    dropped:
+      check: Is a product that customers reorder out of stock or discontinued?
+      yes: Repeat orders containing that product fall to near zero while other repeat orders hold.
+    spiked:
+      check: Did a restock or a relaunch bring waiting customers back?
+      yes: Repeat orders jump in the week the product returned, many from back-in-stock emails.
+  - id: customer-base
+    label: Size of the customer base
+    metric: active-customers
+    dropped:
+      check: Is the base of recent buyers smaller than it was, after a weaker acquisition season?
+      yes: Active customers have been falling for weeks; this week continues a trend rather than starting one.
+    spiked:
+      check: Did a large wave of first-time buyers a few months ago start ordering again?
+      yes: The rise matches the size of cohorts won one to three months earlier, such as last Black Friday.
+
+diagnose_order: [identity, calendar, email, stock, customer-base]
+
+related: [new-customers, repeat-order-share, repeat-purchase-rate, active-customers, purchase-frequency]
+
+prose:
+  why_it_matters: >-
+    Returning customers buy without a new acquisition cost, so each of their orders carries more
+    margin than a first order. At Northwind about 5,000 come back each week and place about
+    5,200 orders, 39% of the total. The count grows only when the customer base grows and keeps buying, which makes it the
+    plainest weekly read of retention a store has; a sudden drop usually traces to an email, a
+    stock-out or a customer-matching change, not to demand.
+  pitfalls:
+    - A customer whose first and second orders land in the same week counts once as new and once as returning, so new plus returning can exceed the week's customers by a few.
+    - When logins or customer matching break, returning buyers are recorded as new. Returning falls, new rises by the same number, and orders don't move.
+    - The count grows with the customer base. A rising count can hide a falling repeat rate in a growing store, so read repeat purchase rate next to it.
+    - Subscription renewals placed automatically are repeat orders too. Report them separately when they are a large share, or a billing-date cluster looks like loyalty.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

@@ -1,0 +1,222 @@
+id: cpm
+name: Cost per thousand impressions
+aliases:
+  - Cost per mille
+  - Cost per thousand
+  - Cost per 1000 impressions
+family: acquisition
+kind: currency
+polarity: down-is-good
+
+definition:
+  one_line: What the ad platforms charged, on average, to show the ads a thousand times in the week.
+  formula: Ad spend ÷ impressions × 1,000
+
+events:
+  - name: ad_spend
+    description: One row per channel per day, synced from each ad platform's reporting API.
+    also_called: [Ad Spend, ad_performance, campaign_daily_stats]
+    properties:
+      - name: spend
+        description: Amount spent that day, in the store's reporting currency.
+      - name: impressions
+        description: Ads shown that day, as the platform counts them.
+      - name: channel
+        description: The platform (google, meta, tiktok, microsoft, pinterest).
+
+numerator:
+  label: Ad spend
+  aggregate: sum
+  event: ad_spend
+  property: spend
+denominator:
+  label: Impressions
+  aggregate: sum
+  event: ad_spend
+  property: impressions
+
+queries:
+  hogql: |-
+    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT
+      w.week AS week,
+      coalesce(s.spend, 0) AS numerator,
+      coalesce(s.impressions, 0) AS denominator,
+      if(coalesce(s.impressions, 0) = 0, NULL, s.spend / s.impressions * 1000) AS value
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT
+        toMonday(toTimeZone(timestamp, 'UTC')) AS week,
+        sum(toFloat(properties.spend)) AS spend,
+        sum(toFloat(properties.impressions)) AS impressions
+      FROM events
+      WHERE event = 'ad_spend'
+        AND timestamp >= now() - toIntervalWeek(27)
+        AND toMonday(toTimeZone(timestamp, 'UTC')) BETWEEN toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(26) AND toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(1)
+      GROUP BY week
+    ) AS s ON s.week = w.week
+    ORDER BY week
+  postgres: |-
+    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    spend AS (
+      SELECT
+        date_trunc('week', occurred_at AT TIME ZONE 'UTC')::date AS week,
+        sum(CASE WHEN properties->>'spend' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'spend')::numeric END) AS spend,
+        sum(CASE WHEN properties->>'impressions' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'impressions')::numeric END) AS impressions
+      FROM events
+      WHERE event_name = 'ad_spend'
+        AND occurred_at >= (date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks') AT TIME ZONE 'UTC'
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+      GROUP BY 1
+    )
+    SELECT
+      w.week,
+      coalesce(s.spend, 0) AS numerator,
+      coalesce(s.impressions, 0) AS denominator,
+      s.spend / nullif(s.impressions, 0) * 1000 AS value
+    FROM weeks AS w
+    LEFT JOIN spend AS s ON s.week = w.week
+    ORDER BY w.week;
+  bigquery: |-
+    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    spend AS (
+      SELECT
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
+        SUM(SAFE_CAST(JSON_VALUE(properties, '$.spend') AS FLOAT64)) AS spend,
+        SUM(SAFE_CAST(JSON_VALUE(properties, '$.impressions') AS FLOAT64)) AS impressions
+      FROM events
+      WHERE event_name = 'ad_spend'
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      GROUP BY week
+    )
+    SELECT
+      w.week,
+      COALESCE(s.spend, 0) AS numerator,
+      COALESCE(s.impressions, 0) AS denominator,
+      SAFE_DIVIDE(s.spend, s.impressions) * 1000 AS value
+    FROM weeks AS w
+    LEFT JOIN spend AS s ON s.week = w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- CPM per week: ad spend ÷ impressions × 1,000, across every synced ad channel. Last 26 complete weeks (Monday 00:00 UTC), oldest first.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    spend AS (
+      SELECT
+        DATEADD(day, 1 - DAYOFWEEKISO(occurred_at), occurred_at::date) AS week,
+        SUM(TRY_TO_DOUBLE(properties:"spend"::string)) AS spend,
+        SUM(TRY_TO_DOUBLE(properties:"impressions"::string)) AS impressions
+      FROM events
+      WHERE event_name = 'ad_spend'
+        AND occurred_at >= DATEADD(week, -26, DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date))
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+      GROUP BY 1
+    )
+    SELECT
+      w.week,
+      COALESCE(s.spend, 0) AS numerator,
+      COALESCE(s.impressions, 0) AS denominator,
+      s.spend / NULLIF(s.impressions, 0) * 1000 AS value
+    FROM weeks AS w
+    LEFT JOIN spend AS s ON s.week = w.week
+    ORDER BY w.week;
+
+noise:
+  type: process
+  min_denominator: 10000
+  volume_unit: impressions a week
+  typical: 12
+
+example:
+  business: store
+  level: 14.5
+  volume: 21000000
+  trend: 0.08
+
+drivers:
+  - id: sync
+    label: Impression and spend sync
+    breakdown: channel
+    dropped:
+      check: Is a channel syncing impressions without its spend, or spend that was missing last week?
+      yes: One channel's impressions and spend no longer move together for some days.
+    spiked:
+      check: Is a channel syncing spend without its impressions, or did a platform change how it counts an impression?
+      yes: One channel's impressions fall to near zero or change definition while its spend holds.
+  - id: auction-season
+    label: Auction season
+    feed: shopping
+    dropped:
+      check: Did a high-demand period end, such as the last weeks of Q4?
+      yes: CPMs fall across every platform in the first weeks of January or after a peak.
+    spiked:
+      check: Is this a week when every advertiser bids up, such as Black Friday, Cyber Monday or the run-up to Christmas?
+      yes: CPMs rise across every platform at once; the same weeks last year show the same rise.
+  - id: platform-changes
+    label: Platform changes
+    feed: ad-platforms
+    dropped:
+      check: Did a platform release new inventory or change its auction?
+      yes: CPM falls on one platform only, from a dated change.
+    spiked:
+      check: Did a platform outage, policy change or measurement change limit cheap inventory?
+      yes: CPM rises on one platform only, from a dated change.
+  - id: channel-mix
+    label: Channel and placement mix
+    metric: ad-spend
+    breakdown: channel
+    dropped:
+      check: Did budget shift toward cheap inventory such as display, Audience Network or broad video?
+      yes: Each channel's CPM holds but the share of spend on the cheapest placements grew.
+    spiked:
+      check: Did budget shift toward expensive inventory such as search, LinkedIn or retargeting?
+      yes: Each channel's CPM holds but the share of spend on the most expensive placements grew.
+  - id: targeting-and-creative
+    label: Audience and creative
+    dropped:
+      check: Did a broader audience or a fresh creative with strong engagement lower the price per impression?
+      yes: CPM falls on the campaigns that changed, often with higher click-through.
+    spiked:
+      check: Did audiences narrow, frequency climb, or a tired creative lose its quality ranking?
+      yes: CPM rises on campaigns whose frequency climbed or whose ads ran unchanged for weeks.
+
+diagnose_order: [sync, auction-season, platform-changes, channel-mix, targeting-and-creative]
+
+related: [ad-spend, ctr, cpc, ncac, paid-sessions]
+
+prose:
+  why_it_matters: >-
+    CPM is the price of attention, set by an auction the store doesn't control. When every
+    retailer bids for the same shoppers, as in Black Friday week, CPM rises and every metric
+    downstream gets more expensive with it. At Northwind's $14.50 and 21 million impressions a
+    week, a 20% rise costs about $61,000 more for the same reach.
+  pitfalls:
+    - A blended CPM across platforms moves with the budget mix. Search, LinkedIn and retargeting often cost several times what broad social and display do; split by channel before reading a change.
+    - Platforms count impressions differently. Meta counts an ad when it first appears on screen while Google counts many ads when they are served, so CPMs across platforms don't compare directly.
+    - A falling CPM is not always good news. Cheap placements such as in-app display and Audience Network buy impressions few people notice; read CPM with click-through rate.
+    - Ad-platform days follow the ad account's time zone. Summed into UTC weeks, a little spend and a few impressions land in the neighbouring week.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

@@ -1,0 +1,120 @@
+id: gross-sales
+name: Gross sales
+aliases:
+  - Gross revenue
+  - Gross merchandise value
+  - GMV
+  - Sales before discounts
+family: revenue
+kind: currency
+polarity: up-is-good
+
+definition:
+  one_line: The value of products sold this week at their selling price, before discounts, refunds, tax and shipping.
+  formula: Sum of order subtotals before discounts, excluding tax and shipping
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: subtotal
+        description: Price × quantity of every item, before discounts, tax and shipping.
+      - name: discount
+        description: The total discount on the order, read in discount rate.
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+
+numerator:
+  label: Gross sales
+  aggregate: sum
+  event: order_completed
+  property: subtotal
+
+noise:
+  type: compound
+  cv: 0.9
+  min_denominator: 50
+  volume_unit: orders a week
+  typical: 300000
+
+example:
+  business: store
+  level: 1450000
+  volume: 13300
+  trend: 0.2
+  season: 1
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Did subtotal stop being sent, or change meaning, for example to after discounts?
+      yes: Subtotal ÷ order total jumps or falls on one release day with no change in offers.
+    spiked:
+      check: Did subtotal start including tax or shipping, or did one currency start arriving unconverted?
+      yes: Order subtotals jump for one country or channel from one day.
+  - id: calendar
+    label: Shopping calendar
+    feed: shopping
+    dropped:
+      check: Was last week a sale, holiday or gifting week?
+      yes: The same week last year shows the same dip once aligned on the event.
+    spiked:
+      check: Is this a sale, holiday or gifting week?
+      yes: The same week last year shows the same jump once aligned on the event.
+  - id: orders
+    label: Orders
+    metric: orders
+    dropped:
+      check: Did the number of orders fall, or only what each order is worth before discounts?
+      yes: Orders fall by about as much as gross sales.
+    spiked:
+      check: Is the rise in the number of orders rather than their size?
+      yes: Orders rise by about as much as gross sales.
+  - id: discounts
+    label: Promotions
+    metric: discount-rate
+    dropped:
+      check: Did a promotion end that had been pulling demand forward?
+      yes: Discount rate falls with gross sales while net revenue falls less.
+    spiked:
+      check: Is a promotion lifting gross sales while discounts eat the gain? Check net revenue before celebrating.
+      yes: Discount rate rises with gross sales, and net revenue grows far less.
+  - id: basket-size
+    label: Items per order
+    metric: units-per-order
+    dropped:
+      check: Did shoppers buy fewer items per order, after a bundle ended or a free-shipping threshold fell?
+      yes: Units per order fall while orders hold.
+    spiked:
+      check: Did a bundle, multi-buy offer or higher free-shipping threshold add items to orders?
+      yes: Units per order rise from the day the offer started.
+  - id: price-and-mix
+    label: Prices and product mix
+    dropped:
+      check: Did prices fall, or did sales shift toward cheaper products?
+      yes: Units hold while the average price per unit falls, often on a few products.
+    spiked:
+      check: Did prices rise, a premium product launch, or a few very large orders land?
+      yes: The average price per unit rises, or the largest orders explain most of the jump.
+
+diagnose_order: [tracking, calendar, orders, discounts, basket-size, price-and-mix]
+
+related: [net-revenue, discount-rate, refund-rate, aov, units-per-order]
+
+prose:
+  why_it_matters: >-
+    Gross sales measure demand at full price, before the store decides what to give back.
+    Read beside net revenue, the gap is the cost of promotions and returns; at Northwind, $1.45M
+    of gross sales becomes $1.33M after discounts and about $1.29M after refunds. A promotion
+    that grows gross sales 20% while net revenue grows 5% bought most of its growth.
+  pitfalls:
+    - Shopify's gross sales is price × quantity before discounts, but some platforms' gross revenue includes tax and shipping. Say which one you report; this spec excludes both.
+    - Marking a price down on the product lowers gross sales itself, while a code adds a discount. Two sales of the same depth look different here, so know which kind each one was.
+    - Gross sales rise with every promotion that works on volume. Never report them without net revenue beside them.
+    - A few wholesale or bulk orders can move a small store's week by 10% or more. Check the order count and the largest orders before the total.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

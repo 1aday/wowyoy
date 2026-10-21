@@ -1,0 +1,343 @@
+id: gross-revenue-retention
+name: Gross revenue retention
+aliases:
+  - GRR
+  - Gross dollar retention
+  - GDR
+  - Gross retention
+  - Gross revenue retention rate
+family: subscription
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of what customers paid 12 months ago that they still pay today, counting churn and downgrades but no expansion.
+  formula: Sum over customers paying 52 weeks earlier of the lesser of their MRR now and their MRR then ÷ their MRR then
+
+events:
+  - name: subscription_updated
+    description: Any change to a subscription's plan, quantity, discount or status, with its new monthly amount.
+    also_called: [customer.subscription.updated, Subscription Updated, subscription_changed]
+    properties:
+      - name: subscription_id
+        description: The billing system's subscription id.
+      - name: mrr
+        description: The subscription's monthly amount after the change, after discounts, before tax.
+      - name: status
+        description: active, trialing, past_due or canceled.
+
+numerator:
+  label: MRR kept from customers paying a year ago, capped at what each paid then
+  aggregate: sum
+  event: subscription_updated
+  property: mrr
+
+queries:
+  hogql: |-
+    -- Gross revenue retention, trailing 12 months, for each of the last 26 complete weeks (Monday 00:00 UTC), oldest first: MRR at the week's end from customers who were paying at the end of the same week 52 weeks earlier, each capped at what it paid then, ÷ their MRR then. A customer is the person on the subscription; customers who started since are left out, and those who left count as zero.
+    -- HogQL: paste into a PostHog SQL insight.
+    SELECT
+      w.week AS week,
+      coalesce(r.kept_total, 0) AS numerator,
+      coalesce(r.start_total, 0) AS denominator,
+      if(denominator = 0, NULL, numerator / denominator) AS value
+    FROM (
+      SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week
+    ) AS w
+    LEFT JOIN (
+      SELECT week, sum(least(end_mrr, start_mrr)) AS kept_total, sum(start_mrr) AS start_total
+      FROM (
+        SELECT
+          week,
+          account,
+          coalesce(sumIf(sub_mrr, weeks_back = 52), 0) AS start_mrr,
+          coalesce(sumIf(sub_mrr, weeks_back = 0), 0) AS end_mrr
+        FROM (
+          SELECT
+            week,
+            weeks_back,
+            tupleElement(latest, 1) AS account,
+            if(tupleElement(latest, 3) IN ('active', 'past_due'), tupleElement(latest, 2), 0) AS sub_mrr
+          FROM (
+            SELECT s.week AS week, s.weeks_back AS weeks_back, u.subscription_id AS subscription_id, argMax(tuple(u.person, u.mrr, u.status), u.ts) AS latest
+            FROM (
+              SELECT toMonday(toTimeZone(now(), 'UTC')) - toIntervalWeek(arrayJoin(range(1, 27))) AS week, arrayJoin([0, 52]) AS weeks_back
+            ) AS s
+            CROSS JOIN (
+              SELECT
+                toString(properties.subscription_id) AS subscription_id,
+                person_id AS person,
+                toTimeZone(timestamp, 'UTC') AS ts,
+                toFloat(properties.mrr) AS mrr,
+                toString(properties.status) AS status
+              FROM events
+              WHERE event = 'subscription_updated'
+                AND properties.subscription_id IS NOT NULL
+                AND toMonday(toTimeZone(timestamp, 'UTC')) < toMonday(toTimeZone(now(), 'UTC'))
+            ) AS u
+            WHERE toMonday(u.ts) <= s.week - toIntervalWeek(s.weeks_back)
+            GROUP BY week, weeks_back, subscription_id
+          )
+        )
+        GROUP BY week, account
+      )
+      WHERE start_mrr > 0
+      GROUP BY week
+    ) AS r ON r.week = w.week
+    ORDER BY week
+  postgres: |-
+    -- Gross revenue retention, trailing 12 months, for each of the last 26 complete weeks (Monday 00:00 UTC), oldest first: MRR at the week's end from customers who were paying at the end of the same week 52 weeks earlier, each capped at what it paid then, ÷ their MRR then. A customer is the user_id on the subscription; customers who started since are left out, and those who left count as zero.
+    -- Postgres. Reads events(event_name text, occurred_at timestamptz, user_id text, session_id text, properties jsonb). Weeks are cut in UTC whatever the session time zone.
+    WITH weeks AS (
+      SELECT g.week::date AS week
+      FROM generate_series(
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '26 weeks',
+        date_trunc('week', now() AT TIME ZONE 'UTC') - interval '1 week',
+        interval '1 week'
+      ) AS g(week)
+    ),
+    snaps AS (
+      SELECT w.week, b.weeks_back, w.week + 7 * (1 - b.weeks_back) AS cutoff
+      FROM weeks AS w
+      CROSS JOIN (VALUES (0), (52)) AS b(weeks_back)
+    ),
+    updates AS (
+      SELECT
+        properties->>'subscription_id' AS subscription_id,
+        user_id AS customer,
+        occurred_at AT TIME ZONE 'UTC' AS ts,
+        CASE WHEN properties->>'mrr' ~ '^-?[0-9]+(\.[0-9]+)?$' THEN (properties->>'mrr')::numeric END AS mrr,
+        properties->>'status' AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND properties->>'subscription_id' IS NOT NULL
+        AND occurred_at < date_trunc('week', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+    ),
+    latest AS (
+      SELECT DISTINCT ON (s.week, s.weeks_back, u.subscription_id) s.week, s.weeks_back, u.customer, u.mrr, u.status
+      FROM snaps AS s
+      JOIN updates AS u ON u.ts < s.cutoff
+      ORDER BY s.week, s.weeks_back, u.subscription_id, u.ts DESC
+    ),
+    customers AS (
+      SELECT
+        week,
+        customer,
+        coalesce(sum(mrr) FILTER (WHERE weeks_back = 52), 0) AS start_mrr,
+        coalesce(sum(mrr) FILTER (WHERE weeks_back = 0), 0) AS end_mrr
+      FROM latest
+      WHERE status IN ('active', 'past_due')
+      GROUP BY week, customer
+    ),
+    weekly AS (
+      SELECT week, sum(least(end_mrr, start_mrr)) AS kept_mrr, sum(start_mrr) AS start_mrr
+      FROM customers
+      WHERE start_mrr > 0
+      GROUP BY week
+    )
+    SELECT
+      w.week,
+      coalesce(r.kept_mrr, 0) AS numerator,
+      coalesce(r.start_mrr, 0) AS denominator,
+      r.kept_mrr / nullif(r.start_mrr, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS r ON r.week = w.week
+    ORDER BY w.week;
+  bigquery: |-
+    -- Gross revenue retention, trailing 12 months, for each of the last 26 complete weeks (Monday 00:00 UTC), oldest first: MRR at the week's end from customers who were paying at the end of the same week 52 weeks earlier, each capped at what it paid then, ÷ their MRR then. A customer is the user_id on the subscription; customers who started since are left out, and those who left count as zero.
+    -- BigQuery. Reads events(event_name STRING, occurred_at TIMESTAMP, user_id STRING, session_id STRING, properties JSON). Weeks are cut in UTC.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK), DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK), INTERVAL 1 WEEK)) AS week
+    ),
+    snaps AS (
+      SELECT w.week, weeks_back, TIMESTAMP(DATE_ADD(w.week, INTERVAL (1 - weeks_back) WEEK)) AS cutoff
+      FROM weeks AS w
+      CROSS JOIN UNNEST([0, 52]) AS weeks_back
+    ),
+    updates AS (
+      SELECT
+        JSON_VALUE(properties, '$.subscription_id') AS subscription_id,
+        user_id AS customer,
+        occurred_at,
+        SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64) AS mrr,
+        JSON_VALUE(properties, '$.status') AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND JSON_VALUE(properties, '$.subscription_id') IS NOT NULL
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+    ),
+    latest AS (
+      SELECT s.week, s.weeks_back, u.customer, u.mrr, u.status
+      FROM snaps AS s
+      CROSS JOIN updates AS u
+      WHERE u.occurred_at < s.cutoff
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY s.week, s.weeks_back, u.subscription_id ORDER BY u.occurred_at DESC) = 1
+    ),
+    customers AS (
+      SELECT
+        week,
+        customer,
+        COALESCE(SUM(IF(weeks_back = 52, mrr, NULL)), 0) AS start_mrr,
+        COALESCE(SUM(IF(weeks_back = 0, mrr, NULL)), 0) AS end_mrr
+      FROM latest
+      WHERE status IN ('active', 'past_due')
+      GROUP BY week, customer
+    ),
+    weekly AS (
+      SELECT week, SUM(LEAST(end_mrr, start_mrr)) AS kept_mrr, SUM(start_mrr) AS start_mrr
+      FROM customers
+      WHERE start_mrr > 0
+      GROUP BY week
+    )
+    SELECT
+      w.week,
+      COALESCE(r.kept_mrr, 0) AS numerator,
+      COALESCE(r.start_mrr, 0) AS denominator,
+      SAFE_DIVIDE(r.kept_mrr, r.start_mrr) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS r ON r.week = w.week
+    ORDER BY w.week;
+  snowflake: |-
+    -- Gross revenue retention, trailing 12 months, for each of the last 26 complete weeks (Monday 00:00 UTC), oldest first: MRR at the week's end from customers who were paying at the end of the same week 52 weeks earlier, each capped at what it paid then, ÷ their MRR then. A customer is the user_id on the subscription; customers who started since are left out, and those who left count as zero.
+    -- Snowflake. Reads events(event_name VARCHAR, occurred_at TIMESTAMP_NTZ in UTC, user_id VARCHAR, session_id VARCHAR, properties VARIANT). Weeks start Monday whatever WEEK_START is set to.
+    WITH weeks AS (
+      SELECT DATEADD(week, -1 * ROW_NUMBER() OVER (ORDER BY SEQ4()), DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    snaps AS (
+      SELECT w.week, b.weeks_back, DATEADD(week, 1 - b.weeks_back, w.week) AS cutoff
+      FROM weeks AS w
+      CROSS JOIN (VALUES (0), (52)) AS b (weeks_back)
+    ),
+    updates AS (
+      SELECT
+        properties:"subscription_id"::string AS subscription_id,
+        user_id AS customer,
+        occurred_at,
+        TRY_TO_DOUBLE(properties:"mrr"::string) AS mrr,
+        properties:"status"::string AS status
+      FROM events
+      WHERE event_name = 'subscription_updated'
+        AND properties:"subscription_id"::string IS NOT NULL
+        AND occurred_at < DATEADD(day, 1 - DAYOFWEEKISO(SYSDATE()), SYSDATE()::date)
+    ),
+    latest AS (
+      SELECT s.week, s.weeks_back, u.customer, u.mrr, u.status
+      FROM snaps AS s
+      JOIN updates AS u ON u.occurred_at < s.cutoff
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY s.week, s.weeks_back, u.subscription_id ORDER BY u.occurred_at DESC) = 1
+    ),
+    customers AS (
+      SELECT
+        week,
+        customer,
+        COALESCE(SUM(IFF(weeks_back = 52, mrr, NULL)), 0) AS start_mrr,
+        COALESCE(SUM(IFF(weeks_back = 0, mrr, NULL)), 0) AS end_mrr
+      FROM latest
+      WHERE status IN ('active', 'past_due')
+      GROUP BY week, customer
+    ),
+    weekly AS (
+      SELECT week, SUM(LEAST(end_mrr, start_mrr)) AS kept_mrr, SUM(start_mrr) AS start_mrr
+      FROM customers
+      WHERE start_mrr > 0
+      GROUP BY week
+    )
+    SELECT
+      w.week,
+      COALESCE(r.kept_mrr, 0) AS numerator,
+      COALESCE(r.start_mrr, 0) AS denominator,
+      r.kept_mrr / NULLIF(r.start_mrr, 0) AS value
+    FROM weeks AS w
+    LEFT JOIN weekly AS r ON r.week = w.week
+    ORDER BY w.week;
+
+noise:
+  type: process
+  min_denominator: 50
+  volume_unit: customers in the starting cohort
+  typical: 0.88
+
+example:
+  business: saas
+  level: 0.88
+  volume: 1150
+  trend: 0
+
+drivers:
+  - id: customer-ids
+    label: Customer ids
+    dropped:
+      check: Did a customer-id migration or a billing change split existing customers, so their MRR now looks new?
+      yes: Customers in the starting cohort show zero MRR while new customers with the same names or domains appear.
+    spiked:
+      check: Did accounts merge, so customers who left now look retained?
+      yes: Cohort customers who canceled show MRR again from subscriptions that belong to someone else.
+  - id: cohort-window
+    label: Which customers are in the window
+    dropped:
+      check: Did a cohort with unusually high churn enter the starting window?
+      yes: The move starts the week a large or poorly fitted signup month from 12 months ago crosses the window edge.
+    spiked:
+      check: Did a cohort with unusually high churn leave the starting window?
+      yes: The move starts the week that cohort crosses the window edge, with no change in this week's behaviour.
+  - id: involuntary
+    label: Failed payments
+    feed: stripe
+    dropped:
+      check: Did more of last year's customers lapse for failed payments?
+      yes: A rising share of the cohort's lost MRR ended in past_due; Stripe shows declines or an incident.
+    spiked:
+      check: Did dunning or a card updater recover customers who used to lapse?
+      yes: Fewer cohort customers end in past_due and then canceled.
+  - id: logo-split
+    label: Many small losses or a few large ones
+    metric: logo-churn-rate
+    dropped:
+      check: Is the loss many small customers or a few large ones?
+      yes: Rising logo churn means many small losses; flat logo churn with falling GRR means a few large accounts left or shrank.
+    spiked:
+      check: Is the improvement broad, or one large account that stayed?
+      yes: Logo churn falls too when it is broad; otherwise one renewal explains it.
+  - id: churn
+    label: Churned MRR
+    metric: churned-mrr
+    dropped:
+      check: Did more of last year's customers cancel?
+      yes: Churned MRR from customers older than 12 months rises over the trailing quarter.
+    spiked:
+      check: Did cancellations among long-standing customers slow?
+      yes: Churned MRR from customers older than 12 months falls over the trailing quarter.
+  - id: contraction
+    label: Downgrades
+    breakdown: plan
+    dropped:
+      check: Are customers keeping the product but paying less, with fewer seats, cheaper plans or smaller commitments?
+      yes: Contraction among cohort customers rises while cancellations hold, often after their own budget cuts.
+    spiked:
+      check: Did downgrades slow, or was a downgrade path removed?
+      yes: Contraction among cohort customers falls; if a cheaper plan was removed, watch churn.
+
+diagnose_order: [customer-ids, cohort-window, involuntary, logo-split, churn, contraction]
+
+related: [net-revenue-retention, churned-mrr, logo-churn-rate, mrr, customer-lifetime-value]
+
+prose:
+  why_it_matters: >-
+    Gross revenue retention is the floor under net retention: what last year's customers still
+    pay if no one expands. It cannot pass 100%, which makes it the cleanest read of churn and
+    downgrades, and one of the first retention numbers investors ask for. Copperline, at 88%, has to replace
+    12% of last year's revenue before any growth counts. That sits beside a logo churn of about a
+    quarter of all customers a year because most churn comes in customers' first months, before
+    they are a year old and join the cohort.
+  pitfalls:
+    - Cap each customer at its starting MRR before summing. Letting one customer's expansion offset another's downgrade is NRR, not GRR.
+    - Measure per customer, not per subscription, or a plan change done as cancel and resubscribe counts as churn.
+    - A monthly GRR and a 12-month fixed-cohort GRR are different numbers. 99% a month compounds to 89% a year only if churn is the same at every customer age, which it rarely is.
+    - A customer who leaves and returns within the year counts at what it pays now, capped. Don't count its return as new business in this cohort.
+    - Failed-payment lapses pull GRR down as much as cancellations. Split them, because the fix is in billing, not the product.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1

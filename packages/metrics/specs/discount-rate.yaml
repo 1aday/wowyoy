@@ -1,0 +1,117 @@
+id: discount-rate
+name: Discount rate
+aliases:
+  - Discount percentage
+  - Discounts as a share of sales
+  - Promotional discount rate
+family: revenue
+kind: rate
+polarity: down-is-good
+
+definition:
+  one_line: The share of gross sales given away as discounts at checkout, from codes, automatic offers and bundle deals.
+  formula: Discounts ÷ gross sales (order subtotals before discounts)
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: subtotal
+        description: Price × quantity of every item, before discounts, tax and shipping.
+      - name: discount
+        description: The total discount taken off the subtotal, from codes and automatic offers; shipping discounts excluded.
+      - name: coupon
+        description: The code redeemed on the order, if any.
+      - name: is_first_order
+        description: True when it is the customer's first ever paid order.
+
+numerator:
+  label: Discounts
+  aggregate: sum
+  event: order_completed
+  property: discount
+denominator:
+  label: Gross sales
+  aggregate: sum
+  event: order_completed
+  property: subtotal
+
+noise:
+  type: process
+  min_denominator: 50
+  volume_unit: orders a week
+  typical: 0.085
+
+example:
+  business: store
+  level: 0.085
+  volume: 13300
+  trend: 0.05
+  season: 1
+
+drivers:
+  - id: tracking
+    label: Tracking change
+    dropped:
+      check: Did a new discount app or checkout stop sending the discount on the order event?
+      yes: Orders with a coupon but a zero discount appear from one day.
+    spiked:
+      check: Did discount start including shipping discounts, gift cards or tax, or subtotal change basis?
+      yes: The rate steps up on one release day with no new offer.
+  - id: calendar
+    label: Sales and the calendar
+    feed: shopping
+    dropped:
+      check: Did a sale end, or was last week a sale week?
+      yes: The same week last year shows the same fall once aligned on the event.
+    spiked:
+      check: Is a sale running, store-wide or on a code? Check orders rose with it.
+      yes: The rise matches the sale's dates, and the same week last year shows it too.
+  - id: codes
+    label: Discount codes
+    metric: promo-code-usage-rate
+    breakdown: coupon
+    dropped:
+      check: Did fewer orders use a code, because a code expired or a leaked one was disabled?
+      yes: Code usage falls by about as much as the discount rate.
+    spiked:
+      check: Did a code leak, or did an influencer or affiliate code take off?
+      yes: One code explains most of the rise, often on orders from channels it was never sent to.
+  - id: offer-depth
+    label: Depth of offers
+    dropped:
+      check: Did the offer get shallower, such as 15% off instead of 25%?
+      yes: The discount per discounted order falls while the number of discounted orders holds.
+    spiked:
+      check: Did a deeper offer run, or did two offers start stacking?
+      yes: The discount per discounted order rises; stacked orders carry both a code and an automatic offer.
+  - id: first-orders
+    label: Welcome offers
+    breakdown: is_first_order
+    dropped:
+      check: Did fewer first-time customers order with a welcome discount?
+      yes: The rate holds within each group and only the share of first orders moved.
+    spiked:
+      check: Did more first-time customers order with a welcome discount, or did the welcome offer grow?
+      yes: The rate on first orders rises, or first orders take a larger share.
+
+diagnose_order: [tracking, calendar, codes, offer-depth, first-orders]
+
+related: [promo-code-usage-rate, gross-sales, gross-margin, aov, net-revenue]
+
+prose:
+  why_it_matters: >-
+    Discount rate is the price of the growth a store buys with promotions, and it creeps as
+    welcome codes, influencer codes, leaked codes and stacked offers each add a point nobody
+    chose. At Northwind, 8.5% of $1.45M of gross sales is about $123,000 a week, and each extra
+    point costs $14,500 of gross profit a week.
+  pitfalls:
+    - Markdowns made by lowering the product's price never show as discounts. A store that moves from codes to markdowns sees its discount rate fall while it gives away more.
+    - Free-shipping offers aren't in subtotal or discount. Track their cost separately or the price of a free-shipping promotion stays invisible.
+    - Discounts over gross sales measure cost, while the average discount on discounted orders measures offer depth. Don't compare one with the other's benchmark.
+    - Read it with orders. A sale that adds five points of discount and 30% more orders may be the best week of the quarter; the same five points with flat orders gave margin away.
+
+reviewed_by: wowyoy
+reviewed_at: "2026-10-21"
+version: 1
