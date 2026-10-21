@@ -1,0 +1,239 @@
+id: time-to-value
+name: Time to value
+aliases:
+  - TTV
+  - Time to first value
+  - Time to activation
+  - Time to aha
+family: activation
+kind: duration
+duration_unit: hours
+polarity: down-is-good
+
+definition:
+  one_line: The median time from signing up to first reaching the activation milestone, among people who got there within 7 days.
+  formula: Median of (first activation − signup) in hours, over signups who activated within 7 days, by signup week
+
+events:
+  - name: signed_up
+    description: An account created, sent by the server when the account exists, not when the form is submitted.
+    also_called: [sign_up, Signed Up, user_signed_up, account_created]
+    properties:
+      - name: plan
+        description: The plan chosen at signup, if any.
+  - name: activated
+    description: The product's key action, the one that best predicts a user is still active weeks later, such as a first report shared or a first project with data.
+    also_called: [Activated, user_activated, aha_moment]
+    properties:
+      - name: milestone
+        description: Which milestone fired, when a product tracks more than one.
+
+numerator:
+  label: Signups who activated within 7 days
+  aggregate: unique_users
+  event: activated
+
+queries:
+  hogql: |-
+    -- Time to value: median hours from a person's first signup to their first activation, among people who activated within 7 days, by signup week. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close.
+    SELECT
+      toString(week_start) AS week,
+      count() AS activated_users,
+      quantile(0.5)(hours) AS value
+    FROM (
+      SELECT
+        toMonday(s.signup_at) AS week_start,
+        dateDiff('second', s.signup_at, min(a.ts)) / 3600 AS hours
+      FROM (
+        SELECT person_id, min(timestamp) AS signup_at
+        FROM events
+        WHERE event = 'signed_up'
+        GROUP BY person_id
+      ) AS s
+      INNER JOIN (
+        SELECT person_id, timestamp AS ts
+        FROM events
+        WHERE event = 'activated'
+          AND timestamp >= toMonday(now()) - toIntervalWeek(27)
+      ) AS a ON a.person_id = s.person_id
+      WHERE s.signup_at >= toMonday(now()) - toIntervalWeek(27)
+        AND s.signup_at < toMonday(now()) - toIntervalWeek(1)
+        AND a.ts >= s.signup_at
+        AND a.ts < s.signup_at + toIntervalDay(7)
+      GROUP BY week_start, s.person_id, s.signup_at
+    )
+    GROUP BY week_start
+    ORDER BY week_start
+  postgres: |-
+    -- Time to value: median hours from a person's first signup to their first activation, among people who activated within 7 days, by signup week. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close.
+    WITH signups AS (
+      SELECT user_id, min(occurred_at) AS signup_at
+      FROM events
+      WHERE event_name = 'signed_up'
+      GROUP BY user_id
+    ),
+    first_value AS (
+      SELECT
+        date_trunc('week', s.signup_at)::date AS week,
+        extract(epoch FROM min(a.occurred_at) - s.signup_at) / 3600 AS hours
+      FROM signups s
+      JOIN events a
+        ON a.user_id = s.user_id
+       AND a.event_name = 'activated'
+       AND a.occurred_at >= s.signup_at
+       AND a.occurred_at < s.signup_at + interval '7 days'
+      WHERE s.signup_at >= date_trunc('week', now()) - interval '27 weeks'
+        AND s.signup_at < date_trunc('week', now()) - interval '1 week'
+      GROUP BY s.user_id, s.signup_at
+    )
+    SELECT
+      week,
+      count(*) AS activated_users,
+      percentile_cont(0.5) WITHIN GROUP (ORDER BY hours) AS value
+    FROM first_value
+    GROUP BY week
+    ORDER BY week;
+  bigquery: |-
+    -- Time to value: median hours from a person's first signup to their first activation, among people who activated within 7 days, by signup week. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close. BigQuery's median here is approximate (APPROX_QUANTILES).
+    WITH signups AS (
+      SELECT user_id, MIN(occurred_at) AS signup_at
+      FROM events
+      WHERE event_name = 'signed_up'
+      GROUP BY user_id
+    ),
+    first_value AS (
+      SELECT
+        DATE_TRUNC(DATE(s.signup_at), ISOWEEK) AS week,
+        TIMESTAMP_DIFF(MIN(a.occurred_at), s.signup_at, SECOND) / 3600 AS hours
+      FROM signups AS s
+      JOIN events AS a
+        ON a.user_id = s.user_id
+       AND a.event_name = 'activated'
+       AND a.occurred_at >= s.signup_at
+       AND a.occurred_at < TIMESTAMP_ADD(s.signup_at, INTERVAL 7 DAY)
+      WHERE s.signup_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 27 WEEK))
+        AND s.signup_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK))
+      GROUP BY s.user_id, s.signup_at
+    )
+    SELECT
+      week,
+      COUNT(*) AS activated_users,
+      APPROX_QUANTILES(hours, 100)[OFFSET(50)] AS value
+    FROM first_value
+    GROUP BY week
+    ORDER BY week;
+  snowflake: |-
+    -- Time to value: median hours from a person's first signup to their first activation, among people who activated within 7 days, by signup week. Signup weeks 27 to 2 weeks ago; last week's signups are left out until their 7 days close. Assumes WEEK_START = 1 (Monday).
+    WITH signups AS (
+      SELECT user_id, MIN(occurred_at) AS signup_at
+      FROM events
+      WHERE event_name = 'signed_up'
+      GROUP BY user_id
+    ),
+    first_value AS (
+      SELECT
+        DATE_TRUNC('week', s.signup_at)::date AS week,
+        DATEDIFF(second, s.signup_at, MIN(a.occurred_at)) / 3600 AS hours
+      FROM signups AS s
+      JOIN events AS a
+        ON a.user_id = s.user_id
+       AND a.event_name = 'activated'
+       AND a.occurred_at >= s.signup_at
+       AND a.occurred_at < DATEADD(day, 7, s.signup_at)
+      WHERE s.signup_at >= DATEADD(week, -27, DATE_TRUNC('week', CURRENT_DATE()))
+        AND s.signup_at < DATEADD(week, -1, DATE_TRUNC('week', CURRENT_DATE()))
+      GROUP BY s.user_id, s.signup_at
+    )
+    SELECT
+      week,
+      COUNT(*) AS activated_users,
+      MEDIAN(hours) AS value
+    FROM first_value
+    GROUP BY week
+    ORDER BY week;
+
+noise:
+  type: process
+  min_denominator: 30
+  volume_unit: activated signups in the cohort
+  typical: 22
+
+example:
+  business: saas
+  level: 22
+  volume: 750
+  trend: -0.1
+
+drivers:
+  - id: tracking
+    label: Activation event
+    dropped:
+      check: Was the milestone redefined to an earlier step, or does the event now fire sooner in the flow?
+      yes: Time to value falls overnight with no product change, and activation rate jumps on the same day.
+    spiked:
+      check: Is the activation event arriving late, from a batch job, a delayed sync or a server queue?
+      yes: Event timestamps lag the action in the product, often by a fixed number of hours.
+  - id: calendar
+    label: Weekends and holidays
+    feed: holidays
+    dropped:
+      check: Did the cohort sign up mostly early in the week, with no holiday in its first days?
+      yes: The same cohort weeks last year show the same faster time.
+    spiked:
+      check: Did the cohort's first days include a holiday or a long weekend, so people signed up and came back later?
+      yes: The same cohort weeks last year show the same slower time.
+  - id: activation-mix
+    label: Who activated
+    metric: activation-rate
+    dropped:
+      check: Did slow users stop activating at all? The median gets faster when only the quick ones make it.
+      yes: Activation rate fell for the same cohorts while time to value improved.
+    spiked:
+      check: Did more slow-moving users activate late in the window, from a day-5 email or a sales follow-up?
+      yes: Activation rate rose for the same cohorts, and the extra activations land late in the 7 days.
+  - id: onboarding
+    label: Onboarding
+    metric: onboarding-completion-rate
+    dropped:
+      check: Did onboarding get shorter, or a template or sample data let people skip setup?
+      yes: Onboarding completion rose or took less time for the same cohorts.
+    spiked:
+      check: Was a step added to onboarding, or did one start failing and need retries?
+      yes: Time between signup and onboarding completion grew for the same cohorts.
+  - id: setup-dependency
+    label: Waiting on setup
+    dropped:
+      check: Was a slow dependency removed, such as email verification, an approval or a data import?
+      yes: The step that used to wait for an outside event now completes in the first session.
+    spiked:
+      check: Is a dependency slower, such as an integration's approval, an import queue or verification emails?
+      yes: Time between starting and finishing that step grew, while the rest of the path held.
+  - id: segment
+    label: Plan and company size
+    breakdown: plan
+    dropped:
+      check: Did the mix shift toward a plan or company size that sets up faster?
+      yes: Time to value within each plan held while the mix moved.
+    spiked:
+      check: Did the mix shift toward larger teams, which take longer to set up?
+      yes: Time to value within each plan held while the mix moved toward the slower one.
+
+diagnose_order: [tracking, calendar, activation-mix, onboarding, setup-dependency, segment]
+
+related: [activation-rate, onboarding-completion-rate, signups, week-1-retention, trial-conversion-rate]
+
+prose:
+  why_it_matters: >-
+    Every hour between signup and value is an hour in which a new user can leave. Time to value is
+    the speed of activation, as activation rate is its reach, and products that cut it usually lift
+    activation too. At Copperline the median new user reaches the milestone in about 22 hours, so a
+    weekend in the middle of setup is enough to move it.
+  pitfalls:
+    - It only counts people who got there. When slow users stop activating at all, the median gets faster while the business gets worse, so always read it next to activation rate.
+    - Use the median, not the mean. A few accounts that take six days pull the average far from what a typical user experiences.
+    - Measured in calendar hours, a Friday signup waits through the weekend. A shift in which weekdays people sign up moves it with no product change.
+    - Only cohorts whose 7 days have closed are reported, so the latest point is the signups of two weeks ago.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

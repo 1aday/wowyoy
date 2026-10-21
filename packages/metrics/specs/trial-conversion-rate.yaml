@@ -1,0 +1,251 @@
+id: trial-conversion-rate
+name: Trial conversion rate
+aliases:
+  - Trial-to-paid conversion
+  - Trial to paid rate
+  - Free trial conversion rate
+family: activation
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of trials started in a week that became a paid subscription within 30 days of the trial start.
+  formula: Trials that started a paid subscription within 30 days ÷ trials started, by trial start week
+
+events:
+  - name: trial_started
+    description: A free trial of a paid plan began, sent by the billing system or the server.
+    also_called: [Trial Started, start_trial, customer.subscription.created (status trialing)]
+    properties:
+      - name: plan
+        description: The plan being trialled.
+  - name: subscription_started
+    description: The first paid period of a subscription, sent by the billing system when the first payment succeeds.
+    also_called: [Subscription Started, customer.subscription.created, invoice.paid (first)]
+    properties:
+      - name: subscription_id
+        description: The billing system's subscription id.
+      - name: plan
+        description: The plan subscribed to.
+
+numerator:
+  label: Trials that converted within 30 days
+  aggregate: unique_users
+  event: subscription_started
+denominator:
+  label: People who started a trial
+  aggregate: unique_users
+  event: trial_started
+
+queries:
+  hogql: |-
+    -- Trial conversion rate: of people whose first trial started in each week, the share who started a paid subscription within 30 days of the trial start. Trial weeks 31 to 6 weeks ago; younger cohorts are left out until their 30 days close.
+    SELECT
+      toString(week_start) AS week,
+      countIf(converted) AS numerator,
+      count() AS denominator,
+      if(count() > 0, countIf(converted) / count(), NULL) AS value
+    FROM (
+      SELECT
+        toMonday(s.start_at) AS week_start,
+        countIf(x.ts >= s.start_at AND x.ts < s.start_at + toIntervalDay(30)) > 0 AS converted
+      FROM (
+        SELECT person_id, min(timestamp) AS start_at
+        FROM events
+        WHERE event = 'trial_started'
+        GROUP BY person_id
+      ) AS s
+      LEFT JOIN (
+        SELECT person_id, timestamp AS ts
+        FROM events
+        WHERE event = 'subscription_started'
+          AND timestamp >= toMonday(now()) - toIntervalWeek(31)
+      ) AS x ON x.person_id = s.person_id
+      WHERE s.start_at >= toMonday(now()) - toIntervalWeek(31)
+        AND s.start_at < toMonday(now()) - toIntervalWeek(5)
+      GROUP BY week_start, s.person_id
+    )
+    GROUP BY week_start
+    ORDER BY week_start
+  postgres: |-
+    -- Trial conversion rate: of people whose first trial started in each week, the share who started a paid subscription within 30 days of the trial start. Trial weeks 31 to 6 weeks ago; younger cohorts are left out until their 30 days close.
+    WITH starts AS (
+      SELECT user_id, min(occurred_at) AS start_at
+      FROM events
+      WHERE event_name = 'trial_started'
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT
+        date_trunc('week', s.start_at)::date AS week,
+        s.user_id,
+        count(x.occurred_at) > 0 AS converted
+      FROM starts s
+      LEFT JOIN events x
+        ON x.user_id = s.user_id
+       AND x.event_name = 'subscription_started'
+       AND x.occurred_at >= s.start_at
+       AND x.occurred_at < s.start_at + interval '30 days'
+      WHERE s.start_at >= date_trunc('week', now()) - interval '31 weeks'
+        AND s.start_at < date_trunc('week', now()) - interval '5 weeks'
+      GROUP BY week, s.user_id
+    )
+    SELECT
+      week,
+      count(*) FILTER (WHERE converted) AS numerator,
+      count(*) AS denominator,
+      (count(*) FILTER (WHERE converted))::numeric / nullif(count(*), 0) AS value
+    FROM cohort
+    GROUP BY week
+    ORDER BY week;
+  bigquery: |-
+    -- Trial conversion rate: of people whose first trial started in each week, the share who started a paid subscription within 30 days of the trial start. Trial weeks 31 to 6 weeks ago; younger cohorts are left out until their 30 days close.
+    WITH starts AS (
+      SELECT user_id, MIN(occurred_at) AS start_at
+      FROM events
+      WHERE event_name = 'trial_started'
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT
+        DATE_TRUNC(DATE(s.start_at), ISOWEEK) AS week,
+        s.user_id,
+        COUNT(x.occurred_at) > 0 AS converted
+      FROM starts AS s
+      LEFT JOIN events AS x
+        ON x.user_id = s.user_id
+       AND x.event_name = 'subscription_started'
+       AND x.occurred_at >= s.start_at
+       AND x.occurred_at < TIMESTAMP_ADD(s.start_at, INTERVAL 30 DAY)
+      WHERE s.start_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 31 WEEK))
+        AND s.start_at < TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 5 WEEK))
+      GROUP BY week, s.user_id
+    )
+    SELECT
+      week,
+      COUNTIF(converted) AS numerator,
+      COUNT(*) AS denominator,
+      SAFE_DIVIDE(COUNTIF(converted), COUNT(*)) AS value
+    FROM cohort
+    GROUP BY week
+    ORDER BY week;
+  snowflake: |-
+    -- Trial conversion rate: of people whose first trial started in each week, the share who started a paid subscription within 30 days of the trial start. Trial weeks 31 to 6 weeks ago; younger cohorts are left out until their 30 days close. Assumes WEEK_START = 1 (Monday).
+    WITH starts AS (
+      SELECT user_id, MIN(occurred_at) AS start_at
+      FROM events
+      WHERE event_name = 'trial_started'
+      GROUP BY user_id
+    ),
+    cohort AS (
+      SELECT
+        DATE_TRUNC('week', s.start_at)::date AS week,
+        s.user_id,
+        COUNT(x.occurred_at) > 0 AS converted
+      FROM starts AS s
+      LEFT JOIN events AS x
+        ON x.user_id = s.user_id
+       AND x.event_name = 'subscription_started'
+       AND x.occurred_at >= s.start_at
+       AND x.occurred_at < DATEADD(day, 30, s.start_at)
+      WHERE s.start_at >= DATEADD(week, -31, DATE_TRUNC('week', CURRENT_DATE()))
+        AND s.start_at < DATEADD(week, -5, DATE_TRUNC('week', CURRENT_DATE()))
+      GROUP BY week, s.user_id
+    )
+    SELECT
+      week,
+      COUNT_IF(converted) AS numerator,
+      COUNT(*) AS denominator,
+      DIV0NULL(COUNT_IF(converted), COUNT(*)) AS value
+    FROM cohort
+    GROUP BY week
+    ORDER BY week;
+
+noise:
+  type: binomial
+  min_denominator: 50
+  volume_unit: trials in the cohort
+  typical: 0.18
+  reference_volumes: [50, 150, 500, 2000]
+
+example:
+  business: saas
+  level: 0.18
+  volume: 160
+  trend: 0.04
+
+drivers:
+  - id: billing
+    label: Billing and first charges
+    feed: stripe
+    dropped:
+      check: Did first charges at trial end start failing, or did subscription events stop syncing?
+      yes: Failed first payments rise, or paid subscriptions in the billing dashboard exceed those recorded.
+    spiked:
+      check: Is a billing migration or plan change firing subscription_started for people who were already paying?
+      yes: Many converters had an earlier paid subscription under another id.
+  - id: calendar
+    label: Holidays at trial end
+    feed: holidays
+    dropped:
+      check: Did the cohort's trials end over a holiday, when nobody was there to approve the purchase?
+      yes: The same cohort weeks last year show the same dip.
+    spiked:
+      check: Did the cohort's trials end at a quarter or budget-year start?
+      yes: The same cohort weeks last year show the same rise.
+  - id: trial-terms
+    label: Trial terms
+    dropped:
+      check: Did the cohort get easier terms, such as no card required or a longer trial that doesn't fit the 30 days?
+      yes: Trial starts jumped for the cohort and the conversion drop starts with the first cohort on the new terms.
+    spiked:
+      check: Did the cohort get stricter terms, such as a card required up front?
+      yes: Trial starts fell for the cohort and conversion rose from the first cohort on the new terms.
+  - id: trial-quality
+    label: Who started a trial
+    metric: trial-starts
+    breakdown: plan
+    dropped:
+      check: Did a promotion or a campaign fill the cohort with low-intent trials?
+      yes: Trial starts rose that week from one source or plan that converts far below the rest.
+    spiked:
+      check: Did a low-intent source stop, leaving a smaller, more committed cohort?
+      yes: Trial starts fell that week while conversion from the other sources held.
+  - id: activation
+    label: Activation during the trial
+    metric: activation-rate
+    dropped:
+      check: Did fewer trialists reach the activation milestone during the trial?
+      yes: Activation fell for the same people, and conversion fell mostly among those who never activated.
+    spiked:
+      check: Did more trialists reach the milestone, after an onboarding or product change?
+      yes: Activation rose for the same people by a similar share.
+  - id: pricing
+    label: Pricing and follow-up
+    dropped:
+      check: Did prices rise, a discount end, or sales follow-up on trials slow down?
+      yes: Conversion fell from the first cohort to see the new price or the change in follow-up.
+    spiked:
+      check: Did a trial-end discount or a cheaper plan launch, or did sales start calling every trialist?
+      yes: Conversion rose from the first cohort to get the offer, often concentrated on one plan.
+
+diagnose_order: [billing, calendar, trial-terms, trial-quality, activation, pricing]
+
+related: [trial-starts, new-paid-accounts, activation-rate, time-to-value, logo-churn-rate]
+
+prose:
+  why_it_matters: >-
+    Trial conversion is where a product proves it is worth paying for. Benchmarks split by trial
+    type: trials without a card up front usually convert around 15 to 25%, card-required trials
+    around half. Read by trial-start cohort, each week's number answers a question about the trials
+    that began then, not about whoever happened to pay this week.
+  pitfalls:
+    - Conversions this week ÷ trials started this week mixes cohorts and swings with last month's trial volume. This spec follows each trial cohort for 30 days.
+    - Thirty days covers trials of up to about three weeks plus a grace period. For a 30-day trial use a window of at least 37 days, or every cohort looks low.
+    - Only cohorts whose 30 days have closed are reported, so the latest point is trials that started 6 weeks ago.
+    - Failed card charges at trial end are lost conversions, not lost interest. Check failed first payments before changing the product.
+    - At 160 trials a week a move of 9 points is still chance. Small products should judge trial conversion over four-week groups.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

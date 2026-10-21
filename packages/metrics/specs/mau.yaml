@@ -1,0 +1,187 @@
+id: mau
+name: Monthly active users
+aliases:
+  - MAU
+  - Monthly active users (MAU)
+  - Monthly actives
+  - 28-day active users
+family: engagement
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: The number of distinct people active at least once in the 28 days ending this Sunday.
+  formula: Distinct people with any event in the 28 days ending Sunday 23:59 UTC
+
+events:
+  - name: "*"
+    description: Any event a person sends. Activity, not one specific action; the same definition as DAU and WAU.
+    also_called: [All events, Any event, Active event]
+    properties:
+      - name: $os
+        description: The operating system, for splitting by platform.
+
+numerator:
+  label: Distinct active people in 28 days
+  aggregate: unique_users
+  event: "*"
+
+queries:
+  hogql: |-
+    -- Monthly active users for each of the last 26 complete ISO weeks (Monday start, UTC): distinct people with any event in the 28 days ending that Sunday. Each person-week counts toward that week and the three after it.
+    SELECT
+      toString(monday) AS week,
+      count(DISTINCT person_id) AS value
+    FROM (
+      SELECT person_id, active_week + toIntervalWeek(arrayJoin([0, 1, 2, 3])) AS monday
+      FROM (
+        SELECT DISTINCT person_id, toMonday(timestamp) AS active_week
+        FROM events
+        WHERE timestamp >= toMonday(now()) - toIntervalWeek(29)
+          AND timestamp < toMonday(now())
+      )
+    )
+    WHERE monday >= toMonday(now()) - toIntervalWeek(26)
+      AND monday < toMonday(now())
+    GROUP BY monday
+    ORDER BY monday
+  postgres: |-
+    -- Monthly active users for each of the last 26 complete ISO weeks (Monday start, UTC): distinct people with any event in the 28 days ending that Sunday. Each person-week counts toward that week and the three after it.
+    WITH active AS (
+      SELECT DISTINCT user_id, date_trunc('week', occurred_at)::date AS active_week
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= date_trunc('week', now()) - interval '29 weeks'
+        AND occurred_at < date_trunc('week', now())
+    )
+    SELECT
+      a.active_week + 7 * k AS week,
+      count(DISTINCT a.user_id) AS value
+    FROM active AS a
+    CROSS JOIN generate_series(0, 3) AS k
+    WHERE a.active_week + 7 * k >= date_trunc('week', now()) - interval '26 weeks'
+      AND a.active_week + 7 * k < date_trunc('week', now())
+    GROUP BY 1
+    ORDER BY 1;
+  bigquery: |-
+    -- Monthly active users for each of the last 26 complete ISO weeks (Monday start, UTC): distinct people with any event in the 28 days ending that Sunday. Each person-week counts toward that week and the three after it.
+    WITH active AS (
+      SELECT DISTINCT user_id, DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS active_week
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 29 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+    )
+    SELECT
+      DATE_ADD(a.active_week, INTERVAL k WEEK) AS week,
+      COUNT(DISTINCT a.user_id) AS value
+    FROM active AS a
+    CROSS JOIN UNNEST([0, 1, 2, 3]) AS k
+    WHERE DATE_ADD(a.active_week, INTERVAL k WEEK) >= DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK)
+      AND DATE_ADD(a.active_week, INTERVAL k WEEK) < DATE_TRUNC(CURRENT_DATE(), ISOWEEK)
+    GROUP BY week
+    ORDER BY week;
+  snowflake: |-
+    -- Monthly active users for each of the last 26 complete ISO weeks (Monday start, UTC): distinct people with any event in the 28 days ending that Sunday. Each person-week counts toward that week and the three after it. Assumes WEEK_START = 1 (Monday).
+    WITH active AS (
+      SELECT DISTINCT user_id, DATE_TRUNC('week', occurred_at)::date AS active_week
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= DATEADD(week, -29, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+    )
+    SELECT
+      DATEADD(week, k.n, a.active_week) AS week,
+      COUNT(DISTINCT a.user_id) AS value
+    FROM active AS a
+    CROSS JOIN (VALUES (0), (1), (2), (3)) AS k (n)
+    WHERE DATEADD(week, k.n, a.active_week) >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
+      AND DATEADD(week, k.n, a.active_week) < DATE_TRUNC('week', CURRENT_DATE())
+    GROUP BY 1
+    ORDER BY 1;
+
+noise:
+  type: process
+  min_denominator: 100
+  volume_unit: monthly active users
+  typical: 120000
+
+example:
+  business: app
+  level: 120000
+  volume: 120000
+  trend: 0.15
+
+drivers:
+  - id: tracking
+    label: Tracking and identity
+    dropped:
+      check: Did an SDK update, consent change or identity merge reduce the people counted?
+      yes: MAU falls on one platform or app version from one date, or falls the week duplicate ids were merged.
+    spiked:
+      check: Did bots, duplicated ids or a newly tracked surface, such as logged-out web pages, add people?
+      yes: The new actives have one or two events each and come from one platform, page or user agent.
+  - id: window
+    label: The 28-day window
+    dropped:
+      check: Did an unusually large week, from a launch or campaign, just leave the 28-day window?
+      yes: MAU falls exactly four weeks after a spike in new people, with no change in this week's activity.
+    spiked:
+      check: Did an unusually weak week, from an outage or holiday, just leave the window?
+      yes: MAU rises four weeks after a dip, with no change in this week's activity.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Does the window cover a holiday period when people use the product less?
+      yes: The same four weeks last year show the same dip.
+    spiked:
+      check: Does the window cover a seasonal high for the product?
+      yes: The same four weeks last year show the same rise.
+  - id: new-users
+    label: New users
+    metric: signups
+    dropped:
+      check: Did fewer new people arrive over the last four weeks?
+      yes: Sign-ups fell in the weeks inside the window by about as many as MAU did.
+    spiked:
+      check: Did a launch or campaign bring a wave of new people in the last four weeks?
+      yes: Sign-ups inside the window explain the rise; stickiness falls if they used it once.
+  - id: retention
+    label: Retention of recent cohorts
+    metric: week-4-retention
+    dropped:
+      check: Are recent cohorts staying active for fewer weeks?
+      yes: Week 4 retention of recent cohorts falls, so fewer of last month's newcomers are still counted.
+    spiked:
+      check: Are recent cohorts staying longer?
+      yes: Week 4 retention of recent cohorts rises.
+  - id: resurrected
+    label: Resurrected users
+    metric: resurrected-users
+    dropped:
+      check: Did fewer lapsed people come back over the last four weeks?
+      yes: Resurrected users are below their usual range for the weeks inside the window.
+    spiked:
+      check: Did a win-back campaign bring lapsed people back?
+      yes: Resurrected users explain most of the rise.
+
+diagnose_order: [tracking, window, calendar, new-users, retention, resurrected]
+
+related: [dau, wau, stickiness, week-4-retention, resurrected-users]
+
+prose:
+  why_it_matters: >-
+    MAU is the size of the audience a product reaches in a month, and the base every engagement
+    ratio divides by. Each week's figure shares three of its four weeks with the week before, so
+    it moves slowly, and a drop usually started up to four weeks ago. A fixed 28-day window keeps
+    every month the same length, so February doesn't look like a decline.
+  pitfalls:
+    - Calendar months run 28 to 31 days, which moves MAU by several percent on length alone. A fixed 28-day window removes that.
+    - Consecutive weeks share three weeks of activity, so MAU looks smoother than the business is. Read WAU and new users to see what changed this week.
+    - One push or email blast can add tens of thousands of people who open once. They inflate MAU for four weeks and drag stickiness down.
+    - Logged-out visitors and signed-in people counted together double count anyone who signs in during the window.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

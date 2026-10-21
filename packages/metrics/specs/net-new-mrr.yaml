@@ -1,0 +1,229 @@
+id: net-new-mrr
+name: Net new MRR
+aliases:
+  - Net MRR growth
+  - Net MRR change
+  - MRR growth
+  - Net new monthly recurring revenue
+family: subscription
+kind: currency
+polarity: up-is-good
+
+definition:
+  one_line: How much monthly recurring revenue grew or shrank this week, the sum of its four movements; it can be negative.
+  formula: New MRR + expansion MRR − contraction MRR − churned MRR
+
+events:
+  - name: subscription_started
+    description: A subscription's first paid period began.
+    also_called: [Subscription Started, subscription_created]
+    properties:
+      - name: mrr
+        description: The new subscription's monthly amount.
+  - name: subscription_expanded
+    description: A paying subscription's monthly amount went up.
+    also_called: [Subscription Upgraded, plan_upgraded]
+    properties:
+      - name: mrr_delta
+        description: How much it rose, as a positive number.
+  - name: subscription_contracted
+    description: A paying subscription's monthly amount went down from a downgrade, fewer seats or less usage, without ending.
+    also_called: [Subscription Downgraded, plan_downgraded]
+    properties:
+      - name: mrr_delta
+        description: How much it fell, as a positive number.
+  - name: subscription_canceled
+    description: A subscription stopped being billed.
+    also_called: [customer.subscription.deleted, Subscription Cancelled]
+    properties:
+      - name: mrr
+        description: The monthly amount it was paying before it ended.
+
+numerator:
+  label: New MRR, before the other three movements
+  aggregate: sum
+  event: subscription_started
+  property: mrr
+
+queries:
+  hogql: |-
+    -- Net new MRR for each of the last 26 complete ISO weeks (Monday start, UTC): new + expansion − contraction − churned MRR, each from its event in that week.
+    SELECT
+      toString(monday) AS week,
+      new_mrr,
+      expansion_mrr,
+      contraction_mrr,
+      churned_mrr,
+      new_mrr + expansion_mrr - contraction_mrr - churned_mrr AS value
+    FROM (
+      SELECT
+        toMonday(timestamp) AS monday,
+        coalesce(sumIf(toFloat(properties.mrr), event = 'subscription_started'), 0) AS new_mrr,
+        coalesce(sumIf(toFloat(properties.mrr_delta), event = 'subscription_expanded'), 0) AS expansion_mrr,
+        coalesce(sumIf(toFloat(properties.mrr_delta), event = 'subscription_contracted'), 0) AS contraction_mrr,
+        coalesce(sumIf(toFloat(properties.mrr), event = 'subscription_canceled'), 0) AS churned_mrr
+      FROM events
+      WHERE event IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
+        AND timestamp >= toMonday(now()) - toIntervalWeek(26)
+        AND timestamp < toMonday(now())
+      GROUP BY monday
+    )
+    ORDER BY monday
+  postgres: |-
+    -- Net new MRR for each of the last 26 complete ISO weeks (Monday start, UTC): new + expansion − contraction − churned MRR, each from its event in that week.
+    SELECT
+      week,
+      new_mrr,
+      expansion_mrr,
+      contraction_mrr,
+      churned_mrr,
+      new_mrr + expansion_mrr - contraction_mrr - churned_mrr AS value
+    FROM (
+      SELECT
+        date_trunc('week', occurred_at)::date AS week,
+        coalesce(sum((properties->>'mrr')::numeric) FILTER (WHERE event_name = 'subscription_started'), 0) AS new_mrr,
+        coalesce(sum((properties->>'mrr_delta')::numeric) FILTER (WHERE event_name = 'subscription_expanded'), 0) AS expansion_mrr,
+        coalesce(sum((properties->>'mrr_delta')::numeric) FILTER (WHERE event_name = 'subscription_contracted'), 0) AS contraction_mrr,
+        coalesce(sum((properties->>'mrr')::numeric) FILTER (WHERE event_name = 'subscription_canceled'), 0) AS churned_mrr
+      FROM events
+      WHERE event_name IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
+        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
+        AND occurred_at < date_trunc('week', now())
+      GROUP BY 1
+    ) AS flows
+    ORDER BY week;
+  bigquery: |-
+    -- Net new MRR for each of the last 26 complete ISO weeks (Monday start, UTC): new + expansion − contraction − churned MRR, each from its event in that week.
+    SELECT
+      week,
+      new_mrr,
+      expansion_mrr,
+      contraction_mrr,
+      churned_mrr,
+      new_mrr + expansion_mrr - contraction_mrr - churned_mrr AS value
+    FROM (
+      SELECT
+        DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week,
+        COALESCE(SUM(IF(event_name = 'subscription_started', SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64), NULL)), 0) AS new_mrr,
+        COALESCE(SUM(IF(event_name = 'subscription_expanded', SAFE_CAST(JSON_VALUE(properties, '$.mrr_delta') AS FLOAT64), NULL)), 0) AS expansion_mrr,
+        COALESCE(SUM(IF(event_name = 'subscription_contracted', SAFE_CAST(JSON_VALUE(properties, '$.mrr_delta') AS FLOAT64), NULL)), 0) AS contraction_mrr,
+        COALESCE(SUM(IF(event_name = 'subscription_canceled', SAFE_CAST(JSON_VALUE(properties, '$.mrr') AS FLOAT64), NULL)), 0) AS churned_mrr
+      FROM events
+      WHERE event_name IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+      GROUP BY week
+    )
+    ORDER BY week;
+  snowflake: |-
+    -- Net new MRR for each of the last 26 complete ISO weeks (Monday start, UTC): new + expansion − contraction − churned MRR, each from its event in that week. Assumes WEEK_START = 1 (Monday).
+    SELECT
+      week,
+      new_mrr,
+      expansion_mrr,
+      contraction_mrr,
+      churned_mrr,
+      new_mrr + expansion_mrr - contraction_mrr - churned_mrr AS value
+    FROM (
+      SELECT
+        DATE_TRUNC('week', occurred_at)::date AS week,
+        COALESCE(SUM(IFF(event_name = 'subscription_started', properties:mrr::float, NULL)), 0) AS new_mrr,
+        COALESCE(SUM(IFF(event_name = 'subscription_expanded', properties:mrr_delta::float, NULL)), 0) AS expansion_mrr,
+        COALESCE(SUM(IFF(event_name = 'subscription_contracted', properties:mrr_delta::float, NULL)), 0) AS contraction_mrr,
+        COALESCE(SUM(IFF(event_name = 'subscription_canceled', properties:mrr::float, NULL)), 0) AS churned_mrr
+      FROM events
+      WHERE event_name IN ('subscription_started', 'subscription_expanded', 'subscription_contracted', 'subscription_canceled')
+        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+      GROUP BY 1
+    )
+    ORDER BY week;
+
+noise:
+  type: process
+  min_denominator: 20
+  volume_unit: MRR movements a week
+  typical: 1400
+
+example:
+  business: saas
+  level: 1410
+  volume: 45
+  trend: 0.35
+
+drivers:
+  - id: reconciliation
+    label: Movements vs MRR
+    metric: mrr
+    dropped:
+      check: Does this week's net new MRR match the change in MRR from last Sunday to this one?
+      yes: A gap between them means a movement is missing from the event stream, usually a plan change or cancellation that never synced.
+    spiked:
+      check: Does the rise match the change in MRR, or is it larger?
+      yes: Net new MRR runs ahead of the MRR change, which points at a backfill or duplicated subscription_started events.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Is this a holiday week, when purchases pause but renewals and cancellations don't?
+      yes: New MRR falls, churn holds, and the same week last year shows the same dip.
+    spiked:
+      check: Is this the last week of a quarter, when sales-led deals close?
+      yes: New MRR jumps in the same closing week of earlier quarters too.
+  - id: churned
+    label: Churned MRR
+    metric: churned-mrr
+    dropped:
+      check: Did more subscriptions end, or larger ones?
+      yes: Churned MRR rises by about as much as net new MRR fell.
+    spiked:
+      check: Did churn fall unusually low, or did failed payments recover?
+      yes: Churned MRR falls by about as much as net new MRR rose.
+  - id: new
+    label: New MRR
+    metric: new-mrr
+    dropped:
+      check: Did fewer customers start paying, or start on smaller plans?
+      yes: New MRR falls by about as much as net new MRR while churn holds.
+    spiked:
+      check: Did a launch, a sales push or one large deal add new MRR?
+      yes: New MRR jumps; check whether one customer is most of it.
+  - id: expansion
+    label: Expansion MRR
+    metric: expansion-mrr
+    dropped:
+      check: Did upgrades and seat additions slow?
+      yes: Expansion MRR falls while new and churned MRR hold.
+    spiked:
+      check: Did a price change or a usage limit push customers to upgrade?
+      yes: Expansion MRR jumps in the week the change shipped.
+  - id: contraction
+    label: Contraction MRR
+    breakdown: plan
+    dropped:
+      check: Did more customers move to cheaper plans or fewer seats without leaving?
+      yes: subscription_contracted totals rise, often concentrated in one plan or after customers' own budget cuts.
+    spiked:
+      check: Did downgrades slow, or was a downgrade path removed?
+      yes: Contraction falls; if a cheaper plan was removed, watch whether churn rises instead.
+
+diagnose_order: [reconciliation, calendar, churned, new, expansion, contraction]
+
+related: [mrr, new-mrr, expansion-mrr, churned-mrr, quick-ratio]
+
+prose:
+  why_it_matters: >-
+    Net new MRR is the week's change in MRR explained by its four movements, and the one number
+    that says whether the subscription business grew. A B2B SaaS at $240k MRR growing 35% a year
+    adds about $1,400 in an ordinary week, the difference between roughly $2,800 coming in and
+    $1,400 going out, so one bad week on either side can turn it negative. Never read it without
+    its parts: the same net figure can be strong sales hiding a churn problem.
+  pitfalls:
+    - Net new MRR must equal the change in the MRR snapshot from one Sunday to the next. When it doesn't, a movement is missing, usually a plan change or cancellation that never reached the event stream.
+    - Currency revaluations and price migrations change MRR without a customer acting. Classify them on their own, or they land in expansion or contraction.
+    - Because it is the difference of two flows of similar size, it swings far more in percentage terms than any of its parts. Judge it in dollars against its own range, not as a percent change.
+    - Reactivated customers belong with new MRR or on their own line, never netted against churn, or both flows look smaller than they are.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

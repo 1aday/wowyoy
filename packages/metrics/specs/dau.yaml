@@ -1,0 +1,174 @@
+id: dau
+name: Daily active users
+aliases:
+  - DAU
+  - Daily active users (DAU)
+  - Daily actives
+family: engagement
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: The average number of distinct people active on each day of the week, Monday to Sunday UTC.
+  formula: Sum of the seven daily counts of distinct people with any event ÷ 7
+
+events:
+  - name: "*"
+    description: Any event a person sends. Activity, not one specific action; the same definition as WAU and MAU.
+    also_called: [All events, Any event, Active event]
+    properties:
+      - name: $session_id
+        description: The session the event belongs to.
+      - name: $os
+        description: The operating system, for splitting by platform.
+
+numerator:
+  label: Distinct active people
+  aggregate: unique_users
+  event: "*"
+
+queries:
+  hogql: |-
+    -- Daily active users for each of the last 26 complete ISO weeks (Monday start, UTC): the average of the week's seven daily counts of distinct people with any event.
+    SELECT
+      toString(toMonday(day)) AS week,
+      count() / 7 AS value
+    FROM (
+      SELECT DISTINCT person_id, toDate(timestamp) AS day
+      FROM events
+      WHERE timestamp >= toMonday(now()) - toIntervalWeek(26)
+        AND timestamp < toMonday(now())
+    )
+    GROUP BY week
+    ORDER BY week
+  postgres: |-
+    -- Daily active users for each of the last 26 complete ISO weeks (Monday start, UTC): the average of the week's seven daily counts of distinct people with any event.
+    SELECT
+      date_trunc('week', day)::date AS week,
+      count(*) / 7.0 AS value
+    FROM (
+      SELECT DISTINCT user_id, date_trunc('day', occurred_at) AS day
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= date_trunc('week', now()) - interval '26 weeks'
+        AND occurred_at < date_trunc('week', now())
+    ) AS user_days
+    GROUP BY 1
+    ORDER BY 1;
+  bigquery: |-
+    -- Daily active users for each of the last 26 complete ISO weeks (Monday start, UTC): the average of the week's seven daily counts of distinct people with any event.
+    SELECT
+      DATE_TRUNC(day, ISOWEEK) AS week,
+      COUNT(*) / 7 AS value
+    FROM (
+      SELECT DISTINCT user_id, DATE(occurred_at) AS day
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+    )
+    GROUP BY week
+    ORDER BY week;
+  snowflake: |-
+    -- Daily active users for each of the last 26 complete ISO weeks (Monday start, UTC): the average of the week's seven daily counts of distinct people with any event. Assumes WEEK_START = 1 (Monday).
+    SELECT
+      DATE_TRUNC('week', day) AS week,
+      COUNT(*) / 7 AS value
+    FROM (
+      SELECT DISTINCT user_id, occurred_at::date AS day
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+    )
+    GROUP BY 1
+    ORDER BY 1;
+
+noise:
+  type: poisson
+  min_denominator: 100
+  volume_unit: daily active users
+  typical: 22000
+
+example:
+  business: app
+  level: 22000
+  volume: 22000
+  trend: 0.15
+
+drivers:
+  - id: tracking
+    label: Tracking and bots
+    dropped:
+      check: Did an SDK update, consent banner or ad blocker stop events from one platform or app version?
+      yes: One platform or version goes quiet from the day of a release while the others hold.
+    spiked:
+      check: Is the rise real people, or bots, a duplicated SDK init, or a background event now counting as activity?
+      yes: Events per active person fall sharply, or one event, app version or user agent accounts for the new actives.
+  - id: outage
+    label: Outages
+    feed: cloudflare
+    dropped:
+      check: Was the product, its login or a provider it depends on down for part of the week?
+      yes: DAU falls on the days of an incident and recovers after; the status page or provider feed shows it.
+    spiked:
+      check: Did an outage the week before end, bringing people back?
+      yes: Last week's daily counts had a hole and this week's are back at the usual level.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Did a public holiday or school break interrupt daily routines?
+      yes: The same week last year shows the same dip once aligned on the holiday.
+    spiked:
+      check: Is this a seasonal high for the product, such as the new year for a budgeting app?
+      yes: The same weeks last year show the same rise.
+  - id: platform
+    label: Platform and releases
+    breakdown: $os
+    feed: app-stores
+    dropped:
+      check: Is the drop on one platform only, after a release, a store rejection or an OS update?
+      yes: iOS or Android falls from the day of a release or OS update while the web holds.
+    spiked:
+      check: Did a release, store feature or OS update lift one platform?
+      yes: One platform rises from the day the release or feature went live.
+  - id: campaigns
+    label: Push and email campaigns
+    metric: email-click-rate
+    dropped:
+      check: Did a push, email or in-app campaign that usually brings people back not go out?
+      yes: Activity from notification and email opens falls on the days the campaign usually runs.
+    spiked:
+      check: Did a push or email blast bring a one-off wave of opens?
+      yes: DAU jumps on the send day and falls back within days; check how many came back the week after.
+  - id: new-users
+    label: New users
+    metric: signups
+    dropped:
+      check: Did fewer new people arrive this week?
+      yes: New people fall by about as many as DAU did, while returning people hold.
+    spiked:
+      check: Did a launch, a press mention or a paid campaign bring a wave of new people?
+      yes: New people explain the rise while returning people are flat; their week 1 retention decides whether it lasts.
+
+diagnose_order: [tracking, outage, calendar, platform, campaigns, new-users]
+
+related: [wau, mau, stickiness, sessions-per-user, signups]
+
+prose:
+  why_it_matters: >-
+    DAU counts the people who used the product on a given day, the most direct read of whether
+    it has become a habit. This spec reports the week's average of seven daily counts, which
+    removes the weekday cycle that makes single days misleading. At 22,000 daily actives, chance
+    alone moves the weekly average by about 2%, so a 5% move deserves a look and a 1% move does not.
+  pitfalls:
+    - Any event includes events nobody chose to send, such as push notifications received, background refreshes and feature flag checks. Leave passive events out, or DAU counts phones rather than people.
+    - Anonymous and signed-in events from one person count twice until identities are merged. Expect DAU to drop the week merging is fixed.
+    - Comparing one day with the day before mixes weekdays and weekends. Compare weekly averages, or the same weekday.
+    - Bots and uptime checks inflate web DAU. Filter known crawlers and internal accounts before reading a spike.
+    - UTC days split an evening in two for people far from Greenwich. Pick one time zone for daily counts and keep it.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

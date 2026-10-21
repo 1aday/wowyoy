@@ -177,6 +177,12 @@ export const metricSpecSchema = z
       volume: z.number().positive(),
       /** Drift per year, as a fraction: 0.2 = 20% a year. */
       trend: z.number().default(0),
+      /**
+       * How the business's peak weeks move this value, as an exponent on the season's lift:
+       * 1 moves with them (store conversion in Black Friday week), 0 ignores them, −1 moves against them.
+       * Volumes always follow the season.
+       */
+      season: z.number().min(-1).max(1).default(0),
     }),
     drivers: z.array(driver).default([]),
     /** Driver ids in the order a good operator checks them. Every driver appears once. */

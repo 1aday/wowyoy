@@ -1,0 +1,130 @@
+id: mer
+name: Marketing efficiency ratio
+aliases:
+  - Blended ROAS
+  - Media efficiency ratio
+  - Total ROAS
+family: acquisition
+catalog_id: mer
+kind: ratio
+polarity: up-is-good
+
+definition:
+  one_line: All net revenue in the week for each dollar of ad spend, with no attribution to any channel.
+  formula: (Order revenue − refunds) ÷ ad spend, both by the week they happened
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: total
+        description: Order value after discounts, before tax and shipping.
+  - name: order_refunded
+    description: A refund issued against an earlier order, full or partial.
+    also_called: [refund, Order Refunded]
+    properties:
+      - name: amount
+        description: The refunded amount, excluding tax and shipping.
+  - name: ad_spend
+    description: One row per channel per day, synced from each ad platform's reporting API.
+    also_called: [Ad Spend, ad_performance, campaign_daily_stats]
+    properties:
+      - name: spend
+        description: Amount spent that day, in the store's reporting currency.
+
+numerator:
+  label: Order revenue
+  aggregate: sum
+  event: order_completed
+  property: total
+subtract:
+  label: Refunds issued
+  aggregate: sum
+  event: order_refunded
+  property: amount
+denominator:
+  label: Ad spend
+  aggregate: sum
+  event: ad_spend
+  property: spend
+
+noise:
+  type: process
+  min_denominator: 50
+  volume_unit: orders a week
+  typical: 3.5
+
+example:
+  business: store
+  level: 4.3
+  volume: 13000
+  trend: -0.04
+
+drivers:
+  - id: spend-sync
+    label: Spend sync
+    dropped:
+      check: Is a day of spend synced twice, or a currency recorded at the wrong rate?
+      yes: One channel's spend doubles for a day or jumps by an exchange rate, and MER falls by the same share.
+    spiked:
+      check: Is a channel's spend missing for some days?
+      yes: One channel shows zero or partial spend while its own dashboard shows the usual amount.
+  - id: calendar
+    label: Calendar
+    feed: shopping
+    dropped:
+      check: Did budgets rise ahead of an event before the revenue arrived, or did a sale end?
+      yes: The same weeks last year show the same dip once aligned on the event.
+    spiked:
+      check: Is this a sale, holiday or payday week, when demand rises faster than spend?
+      yes: The same week last year shows the same jump once aligned on the event.
+  - id: spend
+    label: Ad spend
+    metric: ad-spend
+    feed: ad-platforms
+    dropped:
+      check: Did spend rise faster than revenue?
+      yes: Spend rises more than revenue does; the extra budget is buying less than the average.
+    spiked:
+      check: Did spend fall while revenue held?
+      yes: Spend falls and revenue barely moves, so some of that spend was buying sales that would have happened anyway.
+  - id: revenue
+    label: Net revenue
+    metric: net-revenue
+    dropped:
+      check: Did revenue fall at steady spend, from conversion, stock, pricing or refunds?
+      yes: Revenue falls while spend holds; the revenue driver tree says which part moved.
+    spiked:
+      check: Did revenue rise at steady spend, from a launch, a press mention or a price rise?
+      yes: Revenue rises while spend holds, usually through organic, direct or email traffic.
+  - id: returning-demand
+    label: Returning customers
+    metric: repeat-order-share
+    dropped:
+      check: Did returning customers, who cost little to bring back, order less?
+      yes: Repeat orders fall while first orders hold.
+    spiked:
+      check: Did a restock, a launch or an email bring returning customers back in numbers?
+      yes: Repeat orders jump while first orders and spend hold.
+
+diagnose_order: [spend-sync, calendar, spend, revenue, returning-demand]
+
+related: [roas, ad-spend, net-revenue, ncac, contribution-margin]
+
+prose:
+  why_it_matters: >-
+    MER is the one efficiency number no ad platform can inflate: total revenue over total
+    spend, with no attribution model in between. Platform ROAS can say every channel is
+    profitable while MER falls; when they disagree, MER is right about the business. A store at
+    a MER of 4.3 with a 60% gross margin makes $2.58 of gross margin per ad dollar, or $1.58
+    after paying for the ad, before any other cost.
+  pitfalls:
+    - MER credits ads with revenue they didn't cause, such as repeat customers, email and word of mouth. A store with a loyal base can show a high MER while new-customer acquisition loses money; read nCAC next to it.
+    - Revenue and spend both follow the calendar, but not in step. Budgets often rise before a sale and revenue lands after it, so compare weeks with the same week last year, not the week before.
+    - Ad spend here is media only. Agency fees, creative and tools make the real ratio lower.
+    - Gross revenue and net revenue give different ratios. This spec uses revenue after discounts and refunds, before tax and shipping, the same as net revenue.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

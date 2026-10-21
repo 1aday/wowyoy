@@ -1,0 +1,118 @@
+id: signup-rate
+name: Signup rate
+aliases:
+  - Visitor-to-signup rate
+  - Signup conversion rate
+  - Registration rate
+family: activation
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of this week's new visitors who signed up, the website's visit-to-account conversion.
+  formula: People who signed up ÷ people whose first ever visit was this week
+
+events:
+  - name: $pageview
+    description: One per page view; a person's first ever page view marks them as a new visitor.
+    also_called: [page_view, Page Viewed, page]
+    properties:
+      - name: utm_source
+        description: The campaign source of the visit, when tagged.
+      - name: $device_type
+        description: Mobile, Desktop or Tablet.
+  - name: signed_up
+    description: An account created, sent by the server when the account exists, not when the form is submitted.
+    also_called: [sign_up, Signed Up, user_signed_up, account_created]
+    properties:
+      - name: method
+        description: How the account was created, such as email, google, sso or invite.
+
+numerator:
+  label: People who signed up
+  aggregate: unique_users
+  event: signed_up
+denominator:
+  label: New visitors
+  aggregate: first_time_users
+  event: $pageview
+
+noise:
+  type: binomial
+  min_denominator: 1000
+  volume_unit: new visitors a week
+  typical: 0.04
+  reference_volumes: [2000, 10000, 50000, 200000]
+
+example:
+  business: saas
+  level: 0.04
+  volume: 55000
+  trend: 0.05
+
+drivers:
+  - id: tracking
+    label: Visitor and signup tracking
+    dropped:
+      check: Did a new domain, a tag change or a consent banner fix start counting visitors who were invisible before?
+      yes: New visitors jump on one day with no change in signups or in the server's own traffic logs.
+    spiked:
+      check: Did a consent banner or ad blocker hide visitors while server-side signups kept counting?
+      yes: New visitors fall on one day while signups hold, and the server's traffic logs don't fall.
+  - id: bots
+    label: Bot traffic
+    metric: unique-visitors
+    dropped:
+      check: Is bot or crawler traffic inflating new visitors?
+      yes: New visitors jump from one country, browser or data-centre range with near-zero time on site and no signups.
+    spiked:
+      check: Are bots creating accounts?
+      yes: Signups jump from one country or email domain and almost none of them activate.
+  - id: calendar
+    label: Holidays
+    feed: holidays
+    dropped:
+      check: Is this a holiday week, when business visitors browse but don't commit?
+      yes: The same week last year shows the same dip once aligned on the holiday.
+    spiked:
+      check: Is this the first week back after a holiday?
+      yes: The same week last year shows the same rise.
+  - id: traffic-mix
+    label: Who arrived
+    metric: paid-sessions
+    feed: ad-platforms
+    dropped:
+      check: Did low-intent visitors grow, from a viral post, a broad campaign or a ranking for an unrelated query?
+      yes: New visitors rise from one source whose signup rate is far below the rest.
+    spiked:
+      check: Did a broad campaign end, leaving fewer but more committed visitors?
+      yes: New visitors fall from one source while signups barely move.
+  - id: signup-flow
+    label: Signup page and form
+    breakdown: $device_type
+    dropped:
+      check: Did the signup form, pricing page or required fields change, or break on one device?
+      yes: The drop starts the day a release went out and concentrates on one device or step.
+    spiked:
+      check: Did a shorter form, social sign-in or a free plan ship?
+      yes: The rise starts the day it shipped, on every traffic source.
+
+diagnose_order: [tracking, bots, calendar, traffic-mix, signup-flow]
+
+related: [signups, unique-visitors, activation-rate, demo-request-rate, conversion-rate]
+
+prose:
+  why_it_matters: >-
+    Signup rate separates two different problems: fewer people arriving, and fewer of them deciding
+    to try the product. For B2B products it usually runs between 1% and 5% of new visitors; at
+    Copperline it is about 4% of 55,000 a week. Because the denominator is visitors, it is very
+    sensitive to traffic quality, and a viral post can halve it while adding signups.
+  pitfalls:
+    - Logged-in customers browsing the app are not prospects. Dividing by all visitors buries the rate under existing users, so this spec divides by first-time visitors.
+    - People who first visited in an earlier week and sign up now count in the numerator only, so the rate runs slightly above a strict visitor cohort conversion. It is consistent week to week, which is what a change needs.
+    - Consent banners and ad blockers hide visitors but not server-side signups, which inflates the rate. A banner change can move it a point overnight.
+    - Bot traffic inflates the denominator and drags the rate down with no change in real demand. Filter known bots before reading a drop.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

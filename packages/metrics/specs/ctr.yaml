@@ -1,0 +1,119 @@
+id: ctr
+name: Click-through rate
+aliases:
+  - Ad click-through rate
+  - Ad CTR
+  - Clickthrough rate
+  - Link click-through rate
+family: acquisition
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of ad impressions in the week that led to a click, across every synced ad platform.
+  formula: Ad clicks ÷ ad impressions
+
+events:
+  - name: ad_spend
+    description: One row per channel per day, synced from each ad platform's reporting API.
+    also_called: [Ad Spend, ad_performance, campaign_daily_stats]
+    properties:
+      - name: clicks
+        description: Link clicks that day. Use link clicks, not all clicks, where the platform offers both.
+      - name: impressions
+        description: Ads shown that day, as the platform counts them.
+      - name: channel
+        description: The platform (google, meta, tiktok, microsoft, pinterest).
+      - name: campaign
+        description: The campaign name or id on that platform.
+
+numerator:
+  label: Ad clicks
+  aggregate: sum
+  event: ad_spend
+  property: clicks
+denominator:
+  label: Impressions
+  aggregate: sum
+  event: ad_spend
+  property: impressions
+
+noise:
+  type: binomial
+  min_denominator: 10000
+  volume_unit: impressions a week
+  typical: 0.011
+  reference_volumes: [10000, 100000, 1000000, 10000000]
+
+example:
+  business: store
+  level: 0.0115
+  volume: 21000000
+  trend: -0.05
+
+drivers:
+  - id: sync
+    label: Click and impression sync
+    breakdown: channel
+    dropped:
+      check: Did a sync miss clicks for some days, or switch one channel from all clicks to link clicks?
+      yes: One channel's clicks fall sharply from one day while its spend and the sessions it sends hold.
+    spiked:
+      check: Is a channel syncing all clicks (likes, profile taps, expands) instead of link clicks, or missing impressions?
+      yes: One channel's CTR jumps several times over while the sessions it sends barely move.
+  - id: channel-mix
+    label: Channel and placement mix
+    breakdown: channel
+    dropped:
+      check: Did budget shift toward low-CTR inventory such as display, video or Audience Network?
+      yes: Each channel's CTR holds but low-CTR placements took a bigger share of impressions.
+    spiked:
+      check: Did budget shift toward high-CTR inventory such as branded search or retargeting?
+      yes: Each channel's CTR holds but high-CTR placements took a bigger share of impressions.
+  - id: creative-fatigue
+    label: Creative fatigue
+    breakdown: campaign
+    dropped:
+      check: Have the same ads run for weeks to the same people?
+      yes: CTR falls steadily on long-running campaigns as frequency climbs past 3.
+    spiked:
+      check: Did new creative, a new offer or a new hook go live?
+      yes: CTR rises on the campaigns that changed from the day they launched.
+  - id: calendar
+    label: Calendar and offers
+    feed: shopping
+    dropped:
+      check: Did a sale end, so ads lost the offer people were clicking for?
+      yes: The same weeks last year show the same fall after the sale.
+    spiked:
+      check: Is a sale, holiday or launch giving people a reason to click?
+      yes: CTR rises across campaigns that mention the offer, and the same week last year shows it too.
+  - id: invalid-clicks
+    label: Bots and accidental clicks
+    metric: bounce-rate
+    dropped:
+      check: Did a platform start filtering invalid clicks, or did an accidental-tap placement stop serving?
+      yes: Clicks fall on one placement while orders from paid traffic hold.
+    spiked:
+      check: Is a bot, click farm or accidental-tap placement adding clicks?
+      yes: Clicks jump on one placement or app, and those visits bounce almost every time.
+
+diagnose_order: [sync, channel-mix, creative-fatigue, calendar, invalid-clicks]
+
+related: [cpm, cpc, paid-sessions, ad-spend, paid-conversion-rate]
+
+prose:
+  why_it_matters: >-
+    Click-through rate is how well the ads earn attention, and with CPM it sets the price of a
+    click: CPC is CPM ÷ (CTR × 1,000). A fall from 1.2% to 1.0% makes every click 20% more
+    expensive at the same CPM. It is also the earliest sign of creative fatigue, usually weeks
+    before cost per order moves.
+  pitfalls:
+    - Use link clicks, not all clicks. Meta's all-clicks include likes, comments and profile taps, and run two to three times the link-click rate.
+    - A blended CTR moves with the mix. Search ads run 3 to 6%, social 0.8 to 1.5% and display under 0.5%; split by channel before reading a change.
+    - A high CTR from an accidental-tap placement is worse than a low one. Check that clicks became sessions that stayed.
+    - At millions of impressions a week, chance barely moves CTR, so most moves are real. Real doesn't mean caused by you; check the platform and the mix first.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

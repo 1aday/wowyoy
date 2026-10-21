@@ -1,0 +1,122 @@
+id: sessions
+name: Sessions
+aliases:
+  - Visits
+  - Website sessions
+  - Site visits
+family: traffic
+catalog_id: sessions
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: Visits to the site in the week, where a visit ends after 30 minutes without activity.
+  formula: Distinct session ids with at least one page view
+
+events:
+  - name: $pageview
+    description: One page load or client-side route change, captured in the browser.
+    also_called: [page_view, Page Viewed, page]
+    properties:
+      - name: $session_id
+        description: Set by the analytics SDK; a new id after 30 minutes idle or at most 24 hours.
+      - name: $referring_domain
+        description: The domain the visitor came from, or $direct when there was none.
+      - name: utm_medium
+        description: The campaign medium from the landing URL (cpc, email, social).
+
+numerator:
+  label: Sessions
+  aggregate: unique_sessions
+  event: $pageview
+
+noise:
+  type: poisson
+  min_denominator: 100
+  volume_unit: sessions a week
+  typical: 40000
+  reference_volumes: [1000, 5000, 25000, 100000]
+
+example:
+  business: store
+  level: 520000
+  volume: 520000
+  trend: 0.15
+
+drivers:
+  - id: tracking
+    label: Tracking and bots
+    breakdown: $browser
+    dropped:
+      check: Did a consent banner, tag manager or SDK change stop page views being recorded?
+      yes: Orders in the store admin hold while recorded sessions fall, starting on the day of the change and often in one browser.
+    spiked:
+      check: Is a bot, crawler or a page view firing twice inflating the count?
+      yes: The extra sessions come from one browser, country or data-centre network, bounce almost every time and never order.
+  - id: site-availability
+    label: Site and CDN availability
+    feed: cloudflare
+    dropped:
+      check: Was the site, its CDN or its DNS down or slow for part of the week?
+      yes: Sessions dip in the hours of a known incident and recover after it.
+    spiked:
+      check: Was last week depressed by an outage, so this week only looks high?
+      yes: Last week has a gap in the hourly chart; this week is back to its usual level.
+  - id: calendar
+    label: Calendar
+    feed: shopping
+    dropped:
+      check: Was last week a sale, holiday or payday week that this week can't match?
+      yes: The same pair of weeks last year shows the same fall once aligned on the event.
+    spiked:
+      check: Is this week a sale, holiday or gifting week?
+      yes: The same week last year shows the same jump once aligned on the event.
+  - id: paid
+    label: Paid traffic
+    metric: paid-sessions
+    feed: ad-platforms
+    dropped:
+      check: Did ad spend fall, a campaign pause or a billing problem stop ads serving?
+      yes: Paid sessions fall by about as many sessions as the total does, while other channels hold.
+    spiked:
+      check: Did a campaign launch or a budget rise bring more ad clicks?
+      yes: Paid sessions rise by about the size of the jump; check that conversion held before celebrating.
+  - id: organic
+    label: Organic search
+    metric: organic-sessions
+    feed: google-search
+    dropped:
+      check: Did search traffic fall after a Google update or lost rankings on key pages?
+      yes: Organic sessions fall from the date of the update, concentrated on a few landing pages.
+    spiked:
+      check: Did a ranking gain, a seasonal search or a brand moment lift search traffic?
+      yes: Organic sessions rise on a handful of landing pages or on branded searches.
+  - id: referral
+    label: Referrals and press
+    metric: referral-sessions
+    dropped:
+      check: Did a partner link, affiliate or a source of steady referrals go away?
+      yes: One referring domain that used to send traffic has stopped.
+    spiked:
+      check: Did a press mention, a newsletter or a viral post link to the site?
+      yes: One referring domain explains most of the rise and fades within days.
+
+diagnose_order: [tracking, site-availability, calendar, paid, organic, referral]
+
+related: [unique-visitors, organic-sessions, paid-sessions, bounce-rate, conversion-rate, revenue-per-session]
+
+prose:
+  why_it_matters: >-
+    Sessions are the top of every store funnel: orders are sessions times conversion, so a
+    traffic move shows up in revenue a few days later at the same size. They are also the
+    number most easily inflated by bots and broken tags. A 520,000-session week that grows 4%
+    from a crawler adds 20,000 sessions and no orders, and drags every rate below it down.
+  pitfalls:
+    - Sessions are not visitors. One person can have several sessions a week, so a change in how often people come back moves sessions while unique visitors hold.
+    - Tools count sessions differently. Universal Analytics also split a visit at midnight and on every campaign change, GA4 estimates its session count, and server logs include bots browser tools never see, so compare a tool only with itself.
+    - Ad blockers and consent banners hide 10 to 30% of visits from browser tracking, and the share changes when the banner or a browser changes, not when traffic does.
+    - Bot traffic rarely looks like bots in the total. Split by country, browser and landing page before trusting a jump.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

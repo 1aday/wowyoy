@@ -1,0 +1,243 @@
+id: repeat-purchase-rate
+name: Repeat purchase rate
+aliases:
+  - Returning customer rate
+  - Repeat customer rate
+  - Repeat rate
+  - RPR
+family: customers
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of customers who ordered in the last 52 weeks who ordered at least twice in that time.
+  formula: Customers with 2 or more orders in the trailing 52 weeks ÷ customers with any order in them, at each week's end
+
+events:
+  - name: order_completed
+    description: A paid order confirmed by the server, not the thank-you page view.
+    also_called: [purchase, Order Completed, checkout_completed]
+    properties:
+      - name: customer_id
+        description: The store's customer id, shared by guest and logged-in orders with the same email.
+      - name: order_id
+        description: Unique per order; deduplicates retries and reloads.
+
+numerator:
+  label: Customers with 2 or more orders in 52 weeks
+  aggregate: unique_users
+  event: order_completed
+  where:
+    - property: is_first_order
+      op: eq
+      value: false
+denominator:
+  label: Customers with an order in 52 weeks
+  aggregate: unique_users
+  event: order_completed
+
+queries:
+  hogql: |-
+    -- Repeat purchase rate: customers with 2+ orders in the 52 weeks ending each week ÷ customers with any order in them, for each of the last 26 complete weeks.
+    SELECT
+      toString(week_start) AS week,
+      countIf(orders >= 2) AS numerator,
+      count() AS denominator,
+      if(count() > 0, countIf(orders >= 2) / count(), NULL) AS value
+    FROM (
+      SELECT w.week_start AS week_start, o.customer_id AS customer_id, uniqExact(o.order_id) AS orders
+      FROM (
+        SELECT arrayJoin(arrayMap(i -> toMonday(now()) - toIntervalWeek(i), range(1, 27))) AS week_start
+      ) AS w
+      CROSS JOIN (
+        SELECT
+          coalesce(properties.customer_id, toString(person_id)) AS customer_id,
+          properties.order_id AS order_id,
+          timestamp AS ts
+        FROM events
+        WHERE event = 'order_completed'
+          AND timestamp >= toMonday(now()) - toIntervalWeek(77)
+      ) AS o
+      WHERE o.ts >= w.week_start - toIntervalWeek(51)
+        AND o.ts < w.week_start + toIntervalWeek(1)
+      GROUP BY week_start, customer_id
+    )
+    GROUP BY week_start
+    ORDER BY week_start
+  postgres: |-
+    -- Repeat purchase rate: customers with 2+ orders in the 52 weeks ending each week ÷ customers with any order in them, for each of the last 26 complete weeks.
+    WITH weeks AS (
+      SELECT generate_series(
+        date_trunc('week', now()) - interval '26 weeks',
+        date_trunc('week', now()) - interval '1 week',
+        interval '1 week'
+      ) AS week
+    ),
+    paid_orders AS (
+      SELECT
+        coalesce(properties->>'customer_id', user_id) AS customer_id,
+        properties->>'order_id' AS order_id,
+        occurred_at
+      FROM events
+      WHERE event_name = 'order_completed'
+        AND occurred_at >= date_trunc('week', now()) - interval '77 weeks'
+    ),
+    per_customer AS (
+      SELECT w.week, o.customer_id, count(DISTINCT o.order_id) AS orders
+      FROM weeks w
+      JOIN paid_orders o
+        ON o.occurred_at >= w.week - interval '51 weeks'
+       AND o.occurred_at < w.week + interval '1 week'
+      GROUP BY w.week, o.customer_id
+    )
+    SELECT
+      week::date AS week,
+      count(*) FILTER (WHERE orders >= 2) AS numerator,
+      count(*) AS denominator,
+      (count(*) FILTER (WHERE orders >= 2))::numeric / nullif(count(*), 0) AS value
+    FROM per_customer
+    GROUP BY week
+    ORDER BY week;
+  bigquery: |-
+    -- Repeat purchase rate: customers with 2+ orders in the 52 weeks ending each week ÷ customers with any order in them, for each of the last 26 complete weeks.
+    WITH weeks AS (
+      SELECT week
+      FROM UNNEST(GENERATE_DATE_ARRAY(
+        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK),
+        DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 1 WEEK),
+        INTERVAL 1 WEEK
+      )) AS week
+    ),
+    paid_orders AS (
+      SELECT
+        COALESCE(JSON_VALUE(properties, '$.customer_id'), user_id) AS customer_id,
+        JSON_VALUE(properties, '$.order_id') AS order_id,
+        occurred_at
+      FROM events
+      WHERE event_name = 'order_completed'
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 77 WEEK))
+    ),
+    per_customer AS (
+      SELECT w.week, o.customer_id, COUNT(DISTINCT o.order_id) AS orders
+      FROM weeks AS w
+      JOIN paid_orders AS o
+        ON o.occurred_at >= TIMESTAMP(DATE_SUB(w.week, INTERVAL 51 WEEK))
+       AND o.occurred_at < TIMESTAMP(DATE_ADD(w.week, INTERVAL 1 WEEK))
+      GROUP BY w.week, o.customer_id
+    )
+    SELECT
+      week,
+      COUNTIF(orders >= 2) AS numerator,
+      COUNT(*) AS denominator,
+      SAFE_DIVIDE(COUNTIF(orders >= 2), COUNT(*)) AS value
+    FROM per_customer
+    GROUP BY week
+    ORDER BY week;
+  snowflake: |-
+    -- Repeat purchase rate: customers with 2+ orders in the 52 weeks ending each week ÷ customers with any order in them, for each of the last 26 complete weeks. Assumes WEEK_START = 1 (Monday).
+    WITH weeks AS (
+      SELECT DATEADD(week, -ROW_NUMBER() OVER (ORDER BY SEQ4()), DATE_TRUNC('week', CURRENT_DATE())) AS week
+      FROM TABLE(GENERATOR(ROWCOUNT => 26))
+    ),
+    paid_orders AS (
+      SELECT
+        COALESCE(properties:customer_id::string, user_id) AS customer_id,
+        properties:order_id::string AS order_id,
+        occurred_at
+      FROM events
+      WHERE event_name = 'order_completed'
+        AND occurred_at >= DATEADD(week, -77, DATE_TRUNC('week', CURRENT_DATE()))
+    ),
+    per_customer AS (
+      SELECT w.week, o.customer_id, COUNT(DISTINCT o.order_id) AS orders
+      FROM weeks AS w
+      JOIN paid_orders AS o
+        ON o.occurred_at >= DATEADD(week, -51, w.week)
+       AND o.occurred_at < DATEADD(week, 1, w.week)
+      GROUP BY w.week, o.customer_id
+    )
+    SELECT
+      week,
+      COUNT_IF(orders >= 2) AS numerator,
+      COUNT(*) AS denominator,
+      DIV0NULL(COUNT_IF(orders >= 2), COUNT(*)) AS value
+    FROM per_customer
+    GROUP BY week
+    ORDER BY week;
+
+noise:
+  type: process
+  min_denominator: 200
+  volume_unit: customers who ordered in the last 52 weeks
+  typical: 0.27
+
+example:
+  business: store
+  level: 0.27
+  volume: 470000
+  trend: 0.03
+
+drivers:
+  - id: identity
+    label: Customer matching
+    dropped:
+      check: Did customer matching break, so one buyer now appears under several ids?
+      yes: Customers in the window grow faster than orders, and customers with a single order jump.
+    spiked:
+      check: Did a merge or import collapse duplicate customer records into one?
+      yes: Customers in the window fall on one day while orders don't change.
+  - id: roll-off
+    label: The week leaving the window
+    dropped:
+      check: Is an unusually strong repeat week from a year ago leaving the 52-week window?
+      yes: The week 52 weeks back had far more repeat orders than usual, such as last year's holiday peak.
+    spiked:
+      check: Is a week full of one-time buyers from a year ago leaving the window?
+      yes: The week 52 weeks back was a sale week with a flood of first orders that never returned.
+  - id: acquisition-mix
+    label: New customers entering
+    metric: new-customers
+    dropped:
+      check: Did a large wave of new customers enter the window? They haven't had time to reorder, which lowers the rate for months.
+      yes: New customers over the last 8 to 12 weeks run well above the same weeks last year.
+    spiked:
+      check: Did acquisition slow? Fewer fresh customers lifts the rate with no change in loyalty.
+      yes: New customers over recent weeks run below last year while returning customers hold.
+  - id: second-orders
+    label: Second orders from recent cohorts
+    metric: second-order-rate
+    dropped:
+      check: Are recent cohorts coming back less within their first 90 days?
+      yes: Second order rate has fallen for the last few mature cohorts.
+    spiked:
+      check: Are recent cohorts coming back more within their first 90 days?
+      yes: Second order rate has risen for the last few mature cohorts.
+  - id: retention-marketing
+    label: Email and retention flows
+    metric: email-click-rate
+    dropped:
+      check: Did a post-purchase, replenishment or win-back flow stop sending?
+      yes: Flow sends or clicks fell weeks ago and repeat orders have been thinning since.
+    spiked:
+      check: Did a new flow, a loyalty programme or a subscription option launch?
+      yes: Repeat orders from the new flow or programme account for most of the gain.
+
+diagnose_order: [identity, roll-off, acquisition-mix, second-orders, retention-marketing]
+
+related: [second-order-rate, purchase-frequency, repeat-order-share, customer-lifetime-value, active-customers]
+
+prose:
+  why_it_matters: >-
+    Repeat purchase rate is the share of a year's buyers who came back at least once, the number
+    most store benchmarks quote, typically 20 to 30%. Each week adds one week of orders to a 52-week
+    window and drops another, so it moves slowly and a move of even half a point is worth a look.
+    It is the long view of retention; second order rate is the early warning.
+  pitfalls:
+    - The window decides the number. A 90-day and a 365-day rate for the same store can differ several times over; this spec uses 52 weeks, and every comparison must too.
+    - Fast growth lowers it, because customers won in the last few months haven't had time to reorder. Read it next to new customers before blaming retention.
+    - One buyer split across several ids, through guest checkout or a new email, counts as two one-time customers and drags the rate down. Match on the store's customer id.
+    - A weekly move is often the week leaving the window rather than this week's behaviour. Look at what happened 52 weeks ago before looking for a cause today.
+
+reviewed_by: null
+reviewed_at: null
+version: 1
