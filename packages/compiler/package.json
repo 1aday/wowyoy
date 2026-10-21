@@ -11,8 +11,10 @@
     "@workspace/metrics": "workspace:*"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
     "@types/node": "^20",
     "@workspace/typescript-config": "workspace:*",
+    "node-sql-parser": "^5.4.0",
     "typescript": "^5",
     "vitest": "^4"
   },
