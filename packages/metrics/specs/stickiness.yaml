@@ -1,0 +1,234 @@
+id: stickiness
+name: Stickiness
+aliases:
+  - DAU/MAU
+  - DAU/MAU ratio
+  - Stickiness ratio
+  - Daily to monthly active ratio
+family: engagement
+kind: rate
+polarity: up-is-good
+
+definition:
+  one_line: The share of a month's users who show up on a typical day, the week's average DAU divided by MAU for the 28 days ending that Sunday.
+  formula: Average daily active users this week ÷ distinct active people in the 28 days ending Sunday 23:59 UTC
+
+events:
+  - name: "*"
+    description: Any event a person sends, counted the same way on both sides of the ratio.
+    also_called: [All events, Any event, Active event]
+    properties:
+      - name: $os
+        description: The operating system, for splitting by platform.
+
+numerator:
+  label: Average daily active users
+  aggregate: unique_users
+  event: "*"
+
+queries:
+  hogql: |-
+    -- Stickiness for each of the last 26 complete ISO weeks (Monday start, UTC): the average of the week's seven daily counts of distinct active people ÷ distinct active people in the 28 days ending that Sunday.
+    SELECT
+      toString(d.monday) AS week,
+      d.dau AS numerator,
+      m.mau AS denominator,
+      d.dau / m.mau AS value
+    FROM (
+      SELECT toMonday(day) AS monday, count() / 7 AS dau
+      FROM (
+        SELECT DISTINCT person_id, toDate(timestamp) AS day
+        FROM events
+        WHERE timestamp >= toMonday(now()) - toIntervalWeek(26)
+          AND timestamp < toMonday(now())
+      )
+      GROUP BY monday
+    ) AS d
+    INNER JOIN (
+      SELECT monday, count(DISTINCT person_id) AS mau
+      FROM (
+        SELECT person_id, active_week + toIntervalWeek(arrayJoin([0, 1, 2, 3])) AS monday
+        FROM (
+          SELECT DISTINCT person_id, toMonday(timestamp) AS active_week
+          FROM events
+          WHERE timestamp >= toMonday(now()) - toIntervalWeek(29)
+            AND timestamp < toMonday(now())
+        )
+      )
+      GROUP BY monday
+    ) AS m ON m.monday = d.monday
+    ORDER BY d.monday
+  postgres: |-
+    -- Stickiness for each of the last 26 complete ISO weeks (Monday start, UTC): the average of the week's seven daily counts of distinct active people ÷ distinct active people in the 28 days ending that Sunday.
+    WITH user_days AS (
+      SELECT DISTINCT user_id, date_trunc('day', occurred_at)::date AS day
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= date_trunc('week', now()) - interval '29 weeks'
+        AND occurred_at < date_trunc('week', now())
+    ),
+    dau AS (
+      SELECT date_trunc('week', day)::date AS week, count(*) / 7.0 AS dau
+      FROM user_days
+      GROUP BY 1
+    ),
+    mau AS (
+      SELECT date_trunc('week', u.day)::date + 7 * k AS week, count(DISTINCT u.user_id) AS mau
+      FROM user_days AS u
+      CROSS JOIN generate_series(0, 3) AS k
+      GROUP BY 1
+    )
+    SELECT
+      d.week,
+      d.dau AS numerator,
+      m.mau AS denominator,
+      d.dau / nullif(m.mau, 0) AS value
+    FROM dau AS d
+    JOIN mau AS m ON m.week = d.week
+    WHERE d.week >= date_trunc('week', now()) - interval '26 weeks'
+    ORDER BY d.week;
+  bigquery: |-
+    -- Stickiness for each of the last 26 complete ISO weeks (Monday start, UTC): the average of the week's seven daily counts of distinct active people ÷ distinct active people in the 28 days ending that Sunday.
+    WITH user_days AS (
+      SELECT DISTINCT user_id, DATE(occurred_at) AS day
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 29 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+    ),
+    dau AS (
+      SELECT DATE_TRUNC(day, ISOWEEK) AS week, COUNT(*) / 7 AS dau
+      FROM user_days
+      GROUP BY week
+    ),
+    mau AS (
+      SELECT DATE_ADD(DATE_TRUNC(u.day, ISOWEEK), INTERVAL k WEEK) AS week, COUNT(DISTINCT u.user_id) AS mau
+      FROM user_days AS u
+      CROSS JOIN UNNEST([0, 1, 2, 3]) AS k
+      GROUP BY week
+    )
+    SELECT
+      d.week,
+      d.dau AS numerator,
+      m.mau AS denominator,
+      SAFE_DIVIDE(d.dau, m.mau) AS value
+    FROM dau AS d
+    JOIN mau AS m ON m.week = d.week
+    WHERE d.week >= DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK)
+    ORDER BY d.week;
+  snowflake: |-
+    -- Stickiness for each of the last 26 complete ISO weeks (Monday start, UTC): the average of the week's seven daily counts of distinct active people ÷ distinct active people in the 28 days ending that Sunday. Assumes WEEK_START = 1 (Monday).
+    WITH user_days AS (
+      SELECT DISTINCT user_id, occurred_at::date AS day
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= DATEADD(week, -29, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+    ),
+    dau AS (
+      SELECT DATE_TRUNC('week', day) AS week, COUNT(*) / 7 AS dau
+      FROM user_days
+      GROUP BY 1
+    ),
+    mau AS (
+      SELECT DATEADD(week, k.n, DATE_TRUNC('week', u.day)) AS week, COUNT(DISTINCT u.user_id) AS mau
+      FROM user_days AS u
+      CROSS JOIN (VALUES (0), (1), (2), (3)) AS k (n)
+      GROUP BY 1
+    )
+    SELECT
+      d.week,
+      d.dau AS numerator,
+      m.mau AS denominator,
+      d.dau / NULLIF(m.mau, 0) AS value
+    FROM dau AS d
+    JOIN mau AS m ON m.week = d.week
+    WHERE d.week >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
+    ORDER BY d.week;
+
+noise:
+  type: process
+  min_denominator: 500
+  volume_unit: monthly active users
+  typical: 0.18
+
+example:
+  business: app
+  level: 0.183
+  volume: 120000
+  trend: 0
+
+drivers:
+  - id: tracking
+    label: Same activity on both sides
+    dropped:
+      check: Did a change add people to MAU who rarely come back, such as logged-out pages or a newly tracked web view?
+      yes: MAU jumps on one platform or page with almost no daily return, while DAU barely moves.
+    spiked:
+      check: Did a background event start firing daily for people who didn't open the product?
+      yes: DAU rises on one event or app version while sessions per user don't.
+  - id: calendar
+    label: Calendar
+    feed: holidays
+    dropped:
+      check: Is it a holiday week, when daily routines break?
+      yes: The same week last year shows the same dip once aligned on the holiday.
+    spiked:
+      check: Is it a season when the product becomes a daily habit, such as the new year for a budgeting app?
+      yes: The same weeks last year show the same rise.
+  - id: mau-inflow
+    label: One-time users in MAU
+    metric: mau
+    dropped:
+      check: Did a campaign or launch bring many people who used the product once?
+      yes: MAU rises from new people who visit once and DAU barely moves, so the ratio falls without anyone using it less.
+    spiked:
+      check: Did one-time users from a past campaign just leave the 28-day window?
+      yes: MAU falls four weeks after a spike while DAU holds.
+  - id: dau-change
+    label: Daily use by regulars
+    metric: dau
+    dropped:
+      check: Did regular users come back on fewer days?
+      yes: DAU falls while MAU holds; returning people are active fewer days a week.
+    spiked:
+      check: Did a daily feature, streak or reminder make people come back on more days?
+      yes: DAU rises among existing users from the day it shipped.
+  - id: platform
+    label: Platform and releases
+    breakdown: $os
+    feed: app-stores
+    dropped:
+      check: Is the fall on one platform, after a release or OS update?
+      yes: One platform's daily use falls from the release date while the other holds.
+    spiked:
+      check: Did a release on one platform make daily use easier, for example a widget or faster start?
+      yes: One platform's daily use rises from the release date.
+  - id: notifications
+    label: Notifications
+    dropped:
+      check: Did push or reminder notifications stop, or get throttled by an OS permission change?
+      yes: Daily returns from notification opens fall while other returns hold.
+    spiked:
+      check: Did a new daily notification go live?
+      yes: DAU rises on notification opens; check that sessions per user and retention rise too, not only opens.
+
+diagnose_order: [tracking, calendar, mau-inflow, dau-change, platform, notifications]
+
+related: [dau, mau, wau, sessions-per-user, week-4-retention]
+
+prose:
+  why_it_matters: >-
+    Stickiness is the share of a month's users who show up on a given day: 18% means the average
+    monthly user comes back about 5 days in 28. It separates products people use from products
+    people tried, and unlike DAU it doesn't rise just because marketing brought more people in.
+    Many consumer apps sit between 10% and 25%; the messaging apps people open every day run above 50%.
+  pitfalls:
+    - DAU and MAU must count the same activity. If MAU includes logged-out web visits and DAU only signed-in app opens, the ratio measures your tracking.
+    - Calendar-month MAU makes stickiness jump every February. Use a fixed 28-day window.
+    - The ratio rises when occasional users leave, so it can improve while the product shrinks. Read it with MAU.
+    - Products meant to be used weekly, such as payroll or reporting tools, should read WAU/MAU instead; a low DAU/MAU is no problem for them.
+
+reviewed_by: null
+reviewed_at: null
+version: 1

@@ -1,0 +1,216 @@
+id: resurrected-users
+name: Resurrected users
+aliases:
+  - Reactivated users
+  - Returning dormant users
+  - Resurrections
+  - Win-back users
+family: engagement
+kind: count
+polarity: up-is-good
+
+definition:
+  one_line: People active this week who were inactive last week but had been active before, the lapsed users who came back.
+  formula: Distinct people active this week, with no activity the week before and some activity in an earlier week
+
+events:
+  - name: "*"
+    description: Any event a person sends. Activity, not one specific action; the same definition as WAU.
+    also_called: [All events, Any event, Active event]
+    properties:
+      - name: $os
+        description: The operating system, for splitting by platform.
+
+numerator:
+  label: People back after a week or more away
+  aggregate: returning_users
+  event: "*"
+
+queries:
+  hogql: |-
+    -- Resurrected users for each of the last 26 complete ISO weeks (Monday start, UTC): distinct people active in the week, with no event in the week before and a first event before that.
+    SELECT
+      toString(monday) AS week,
+      count() AS value
+    FROM (
+      SELECT
+        r.person_id AS person,
+        arrayJoin(r.active_weeks) AS monday,
+        r.active_weeks AS active_weeks,
+        f.first_at AS first_at
+      FROM (
+        SELECT person_id, groupUniqArray(toMonday(timestamp)) AS active_weeks
+        FROM events
+        WHERE timestamp >= toMonday(now()) - toIntervalWeek(27)
+          AND timestamp < toMonday(now())
+        GROUP BY person_id
+      ) AS r
+      INNER JOIN (
+        SELECT person_id, min(timestamp) AS first_at
+        FROM events
+        WHERE timestamp < toMonday(now())
+        GROUP BY person_id
+      ) AS f ON f.person_id = r.person_id
+    )
+    WHERE monday >= toMonday(now()) - toIntervalWeek(26)
+      AND first_at < monday - toIntervalWeek(1)
+      AND NOT has(active_weeks, monday - toIntervalWeek(1))
+    GROUP BY monday
+    ORDER BY monday
+  postgres: |-
+    -- Resurrected users for each of the last 26 complete ISO weeks (Monday start, UTC): distinct people active in the week, with no event in the week before and a first event before that.
+    WITH active AS (
+      SELECT DISTINCT user_id, date_trunc('week', occurred_at)::date AS week
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= date_trunc('week', now()) - interval '27 weeks'
+        AND occurred_at < date_trunc('week', now())
+    ),
+    firsts AS (
+      SELECT user_id, min(occurred_at) AS first_at
+      FROM events
+      WHERE user_id IS NOT NULL
+      GROUP BY user_id
+    )
+    SELECT
+      a.week,
+      count(*) AS value
+    FROM active AS a
+    JOIN firsts AS f ON f.user_id = a.user_id
+    LEFT JOIN active AS prev ON prev.user_id = a.user_id AND prev.week = a.week - 7
+    WHERE a.week >= date_trunc('week', now()) - interval '26 weeks'
+      AND prev.user_id IS NULL
+      AND f.first_at < a.week - 7
+    GROUP BY a.week
+    ORDER BY a.week;
+  bigquery: |-
+    -- Resurrected users for each of the last 26 complete ISO weeks (Monday start, UTC): distinct people active in the week, with no event in the week before and a first event before that.
+    WITH active AS (
+      SELECT DISTINCT user_id, DATE_TRUNC(DATE(occurred_at), ISOWEEK) AS week
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= TIMESTAMP(DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 27 WEEK))
+        AND occurred_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), ISOWEEK))
+    ),
+    firsts AS (
+      SELECT user_id, MIN(occurred_at) AS first_at
+      FROM events
+      WHERE user_id IS NOT NULL
+      GROUP BY user_id
+    )
+    SELECT
+      a.week,
+      COUNT(*) AS value
+    FROM active AS a
+    JOIN firsts AS f ON f.user_id = a.user_id
+    LEFT JOIN active AS prev ON prev.user_id = a.user_id AND prev.week = DATE_SUB(a.week, INTERVAL 1 WEEK)
+    WHERE a.week >= DATE_SUB(DATE_TRUNC(CURRENT_DATE(), ISOWEEK), INTERVAL 26 WEEK)
+      AND prev.user_id IS NULL
+      AND f.first_at < TIMESTAMP(DATE_SUB(a.week, INTERVAL 1 WEEK))
+    GROUP BY a.week
+    ORDER BY a.week;
+  snowflake: |-
+    -- Resurrected users for each of the last 26 complete ISO weeks (Monday start, UTC): distinct people active in the week, with no event in the week before and a first event before that. Assumes WEEK_START = 1 (Monday).
+    WITH active AS (
+      SELECT DISTINCT user_id, DATE_TRUNC('week', occurred_at)::date AS week
+      FROM events
+      WHERE user_id IS NOT NULL
+        AND occurred_at >= DATEADD(week, -27, DATE_TRUNC('week', CURRENT_DATE()))
+        AND occurred_at < DATE_TRUNC('week', CURRENT_DATE())
+    ),
+    firsts AS (
+      SELECT user_id, MIN(occurred_at) AS first_at
+      FROM events
+      WHERE user_id IS NOT NULL
+      GROUP BY user_id
+    )
+    SELECT
+      a.week,
+      COUNT(*) AS value
+    FROM active AS a
+    JOIN firsts AS f ON f.user_id = a.user_id
+    LEFT JOIN active AS prev ON prev.user_id = a.user_id AND prev.week = DATEADD(week, -1, a.week)
+    WHERE a.week >= DATEADD(week, -26, DATE_TRUNC('week', CURRENT_DATE()))
+      AND prev.user_id IS NULL
+      AND f.first_at < DATEADD(week, -1, a.week)
+    GROUP BY a.week
+    ORDER BY a.week;
+
+noise:
+  type: poisson
+  min_denominator: 50
+  volume_unit: resurrected users a week
+  typical: 6500
+
+example:
+  business: app
+  level: 6500
+  volume: 6500
+  trend: 0.12
+
+drivers:
+  - id: tracking
+    label: Identity and tracking
+    dropped:
+      check: Did returning people stop being recognised, so they now appear as new users instead?
+      yes: New users rise as resurrected users fall, by about the same number, from one date.
+    spiked:
+      check: Did an identity or SDK change wake up old ids, or merge old anonymous ids into active people?
+      yes: Resurrected users jump on one platform or app version, with very few events per person.
+  - id: calendar
+    label: Last week's dip
+    feed: holidays
+    dropped:
+      check: Was last week unusually busy, so fewer regulars had a gap?
+      yes: Last week's WAU was above its range and this week's resurrections fall by a similar number.
+    spiked:
+      check: Was last week a holiday or outage week, so regulars who skipped it now count as resurrected?
+      yes: People retained from the week before fell last week, and resurrections rise this week by a similar number.
+  - id: campaigns
+    label: Win-back campaigns
+    metric: email-click-rate
+    dropped:
+      check: Did a regular win-back email or push skip this week, or start landing in spam?
+      yes: Returns from campaign links and notification opens fall while other returns hold.
+    spiked:
+      check: Did a win-back email, push or ad campaign go out?
+      yes: Resurrections cluster on the send days and arrive through the campaign's link or notification.
+  - id: platform
+    label: Platform and releases
+    breakdown: $os
+    feed: app-stores
+    dropped:
+      check: Did a forced update or a login problem stop lapsed people getting back in on one platform?
+      yes: Resurrections fall on one platform from a release date while the others hold.
+    spiked:
+      check: Did a release, store feature or new integration bring lapsed people back on one platform?
+      yes: Resurrections rise on one platform from the release date.
+  - id: dormant-pool
+    label: How many people have lapsed
+    metric: week-4-retention
+    dropped:
+      check: Is the pool of lapsed people smaller, because fewer people lapsed in recent months?
+      yes: Retention of recent cohorts rose, so fewer lapsed and fewer can come back. Not bad news.
+    spiked:
+      check: Did a large group lapse recently, growing the pool that can come back?
+      yes: Retention of recent cohorts fell a few weeks ago, and part of the loss is now returning.
+
+diagnose_order: [tracking, calendar, campaigns, platform, dormant-pool]
+
+related: [wau, dau, mau, week-4-retention, email-click-rate]
+
+prose:
+  why_it_matters: >-
+    Resurrected users are the lapsed people who came back, one of the three groups, with new and
+    retained people, that make up weekly actives. A steady stream of returners means the product
+    stays useful between bursts of use; a falling one, with steady sign-ups, means people who leave
+    stay gone. At 6,500 a week, chance alone moves it by about 3.5%.
+  pitfalls:
+    - Resurrection depends on the period. A weekly product's regulars skip a week now and then, so weekly resurrections include ordinary gaps; pick the period that matches how often the product is used.
+    - A holiday or outage week inflates the next week's resurrections, because regulars who skipped it count as returning.
+    - Identity changes that split one person into two ids turn regulars into new users, and merges turn new users into resurrected ones.
+    - Win-back campaigns raise resurrections for a week. Judge them on how many of those people are still active a month later.
+
+reviewed_by: null
+reviewed_at: null
+version: 1
