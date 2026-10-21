@@ -40,7 +40,7 @@ noise:
 
 example:
   business: saas
-  level: 1920
+  level: 2900
   volume: 29
   trend: 0.3
 
@@ -109,7 +109,8 @@ prose:
     it is usually the largest of the four MRR movements. It is also the noisiest: at 29 new
     subscriptions a week, chance alone can move it by about 70% week to week, so one large deal
     looks like a breakout. Read it over four weeks, split into how many accounts started and
-    what each one pays.
+    what each one pays: at Copperline about 29 a week at about $100 a month each, below the $126
+    average account because customers start on smaller plans and grow into larger ones.
   pitfalls:
     - Counting a subscription when the trial starts rather than when it first pays books MRR that may never arrive. This spec counts the first paid period.
     - A customer who cancels and later resubscribes is reactivation, not new business; ChartMogul and Baremetrics report it on its own line. Unless reactivations are marked, new MRR overstates acquisition.

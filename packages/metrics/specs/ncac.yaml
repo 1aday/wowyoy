@@ -126,7 +126,7 @@ prose:
     $95 at 58% gross margin earns about $55 of gross profit, so the first order alone pays the ad
     back with about $18 to spare.
   pitfalls:
-    - Ad spend divided by all orders is cost per order, not nCAC. At Northwind, where about 38% of orders are repeat orders, cost per order is about $23 against an nCAC of $37.
+    - Ad spend divided by all orders is cost per order, not nCAC. At Northwind, where about 39% of orders are repeat orders, cost per order is about $23 against an nCAC of $37.
     - All new customers are in the denominator, including those from organic search, email signups and word of mouth. A week with a press mention lowers nCAC without the ads doing anything.
     - First orders need one customer identity across guest and account checkouts. Matching by email misses people who buy again with a different address and makes them new twice.
     - Spend in one week buys customers over the next several. Weekly nCAC swings when budgets change fast; read a four-week view before cutting a channel.

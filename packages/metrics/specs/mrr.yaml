@@ -180,7 +180,7 @@ example:
   business: saas
   level: 240000
   volume: 1900
-  trend: 0.35
+  trend: 0.5
 
 drivers:
   - id: new-mrr

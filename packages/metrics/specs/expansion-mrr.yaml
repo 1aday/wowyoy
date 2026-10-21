@@ -105,8 +105,8 @@ related: [mrr, net-revenue-retention, net-new-mrr, arpa, feature-adoption-rate]
 prose:
   why_it_matters: >-
     Expansion is revenue you don't have to acquire, and it is what lets net revenue retention
-    pass 100%. At Copperline, about $890 a week of expansion adds about 1.6% to MRR each month, enough
-    to offset 1.6% a month of churn and downgrades without a single new customer. It arrives in lumps, from seat
+    pass 100%. At Copperline, about $890 a week of expansion adds about 1.6% to MRR each month and
+    wins back almost two thirds of the 2.5% a month that churn and downgrades take, without a single new customer. It arrives in lumps, from seat
     additions and plan upgrades, so one week says little; four weeks of it against churn say a lot.
   pitfalls:
     - A customer who cancels and immediately buys a bigger plan shows up as churn plus new business, which hides expansion and inflates both. Record plan changes on the same subscription.

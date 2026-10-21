@@ -112,7 +112,7 @@ related: [returning-customers, repeat-order-share, ncac, second-order-rate, new-
 prose:
   why_it_matters: >-
     New customers are the part of demand a store has to win again every week; at Northwind they
-    place about 62% of orders. The count is also the denominator of acquisition cost, so a miscount
+    place about 61% of orders. The count is also the denominator of acquisition cost, so a miscount
     moves new customer CAC, LTV to CAC and payback with it. Read it with what it cost: twice the new
     customers at three times the price is not growth.
   pitfalls:

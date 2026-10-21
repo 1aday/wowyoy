@@ -46,7 +46,7 @@ noise:
 
 example:
   business: store
-  level: 2.15
+  level: 2.22
   volume: 600000
   trend: 0.1
   season: 1
@@ -113,8 +113,9 @@ related: [conversion-rate, aov, sessions, net-revenue, cpc]
 prose:
   why_it_matters: >-
     Revenue per session is what a visit is worth, so it is the number to set beside what a visit
-    costs. At Northwind a session earns about $2.15; at a 53% gross margin, a channel that pays
-    more than about $1.14 per session loses money on the first order. Because it multiplies
+    costs. At Northwind a session earns about $2.22 ($1.33M of order revenue over 600,000
+    sessions); at a 58% gross margin, a channel that pays more than about $1.29 per session loses
+    money on the first order. Because it multiplies
     conversion by order value, it is also the fairest single number for tests that trade one
     against the other.
   pitfalls:

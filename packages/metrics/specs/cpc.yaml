@@ -105,9 +105,10 @@ related: [cpm, ctr, ad-spend, paid-sessions, paid-conversion-rate]
 prose:
   why_it_matters: >-
     CPC is what a visitor from an ad costs before they do anything, and it splits into two
-    numbers that move for different reasons: CPC = CPM ÷ (CTR × 1,000). A $1.25 click
-    converting at 2% means $62.50 of media per order, so a 20% rise in CPC adds $12.50 to every
-    paid order unless conversion rises with it.
+    numbers that move for different reasons: CPC = CPM ÷ (CTR × 1,000). At Northwind's
+    $1.25, with 240,000 clicks arriving as about 180,000 sessions that order at 2.1%, media costs
+    about $79 per paid order, so a 20% rise in CPC adds about $16 to every paid order unless
+    conversion rises with it.
   pitfalls:
     - Clicks are not visits. Some clicks never load the page or are never recorded; at Northwind 240,000 clicks become about 180,000 paid sessions, so cost per paid session is about $1.67, not $1.25.
     - A blended CPC moves with the budget mix. A non-brand search click can cost several times a social click; split by channel before reading a change.

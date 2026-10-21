@@ -21,7 +21,7 @@ events:
         description: The new subscription's monthly amount.
   - name: subscription_expanded
     description: A paying subscription's monthly amount went up.
-    also_called: [Subscription Upgraded, plan_upgraded]
+    also_called: [Subscription Upgraded, plan_upgraded, customer.subscription.updated]
     properties:
       - name: mrr_delta
         description: How much it rose, as a positive number.
@@ -33,7 +33,7 @@ events:
         description: How much it fell, as a positive number.
   - name: subscription_canceled
     description: A subscription stopped being billed.
-    also_called: [customer.subscription.deleted, Subscription Cancelled]
+    also_called: [customer.subscription.deleted, Subscription Cancelled, subscription_ended]
     properties:
       - name: mrr
         description: The monthly amount it was paying before it ended.
@@ -177,8 +177,8 @@ noise:
 
 example:
   business: saas
-  level: 2
-  volume: 180
+  level: 2.7
+  volume: 290
   trend: 0
 
 drivers:

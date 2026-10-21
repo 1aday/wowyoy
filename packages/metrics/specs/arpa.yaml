@@ -224,8 +224,8 @@ noise:
 example:
   business: saas
   level: 126
-  volume: 1850
-  trend: 0.14
+  volume: 1900
+  trend: 0.03
 
 drivers:
   - id: account-counting

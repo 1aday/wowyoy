@@ -104,8 +104,8 @@ prose:
   why_it_matters: >-
     Product view rate says whether visitors find something worth a closer look, before price,
     stock or checkout can matter. On a store with 600,000 sessions a week, one point is 6,000
-    sessions that never see a product; at the 3.6% of product viewers who go on to order, that
-    is about 200 orders a week.
+    sessions that never see a product; at the 3.5% of product viewers who go on to order, that
+    is about 210 orders a week.
   pitfalls:
     - Counting product views instead of sessions with a product view lets a few heavy browsers lift the rate. This spec counts each session once.
     - Decide whether quick-view pop-ups count as product views and keep that choice; switching it moves the rate several points with no change in shoppers.

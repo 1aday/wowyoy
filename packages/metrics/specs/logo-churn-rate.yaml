@@ -254,7 +254,7 @@ noise:
 example:
   business: saas
   level: 0.0056
-  volume: 1850
+  volume: 1900
   trend: 0
 
 drivers:
@@ -319,7 +319,7 @@ prose:
   why_it_matters: >-
     Logo churn counts customers, not dollars, so it shows people leaving even when a few large
     accounts keep revenue churn low. A weekly rate of 0.56% sounds small and is about 2.4% a
-    month, and loses about a quarter of the customer base in a year. At 1,850 customers, chance
+    month, and loses about a quarter of the customer base in a year. At 1,900 customers, chance
     alone moves one week's rate by nearly as much as the rate itself, so read it over four weeks
     or more.
   pitfalls:

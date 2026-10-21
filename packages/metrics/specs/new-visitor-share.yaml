@@ -100,7 +100,7 @@ prose:
   why_it_matters: >-
     A store grows only if new people keep finding it, and this share shows whether this week's
     traffic is reach or the same regulars coming back. It also explains other moves: new
-    visitors convert at a fraction of returning ones, so when the share jumps from 70% to 78%,
+    visitors convert at a fraction of returning ones, so when Northwind's share jumps from 64% to 72%,
     expect store conversion to dip with no change to the site.
   pitfalls:
     - A new visitor is new to this browser's cookie. Cleared cookies, private browsing, a second device and Safari's seven-day cookie limit all make returning people look new, so the share runs high.

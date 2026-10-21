@@ -51,7 +51,7 @@ noise:
 
 example:
   business: saas
-  level: 1150
+  level: 920
   volume: 29
   trend: 0.1
 
@@ -119,8 +119,9 @@ prose:
   why_it_matters: >-
     CAC is what a new customer costs, and with the revenue they bring it decides how fast the
     business can grow on its own cash. Blended CAC divides all acquisition spend by all new
-    customers, so it can't be flattered by an attribution model. At $1,150 per customer, $126 a
-    month in revenue and an 80% gross margin, the spend takes about 11 months to earn back.
+    customers, so it can't be flattered by an attribution model. At Copperline's $920 per customer,
+    about $100 a month of new MRR per customer and an 80% gross margin, the spend takes about 11.5
+    months to earn back.
   pitfalls:
     - Fully loaded CAC also includes sales and marketing salaries, agency fees and tools. Synced ad spend alone is media CAC, which in a sales-led business can be a small part of the full cost; add the other costs as their own channel to blend them in.
     - Spend and customers don't land in the same week. A B2B sale often takes weeks or months from first click, so weekly CAC swings; read the trailing 13 weeks for planning and the weekly number for direction.

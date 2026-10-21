@@ -58,7 +58,7 @@ noise:
 example:
   business: store
   level: 4.3
-  volume: 13000
+  volume: 13300
   trend: -0.04
 
 drivers:

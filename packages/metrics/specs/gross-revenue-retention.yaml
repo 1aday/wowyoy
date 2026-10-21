@@ -262,7 +262,7 @@ noise:
 example:
   business: saas
   level: 0.88
-  volume: 1570
+  volume: 1150
   trend: 0
 
 drivers:
@@ -327,8 +327,10 @@ prose:
   why_it_matters: >-
     Gross revenue retention is the floor under net retention: what last year's customers still
     pay if no one expands. It cannot pass 100%, which makes it the cleanest read of churn and
-    downgrades, and one of the first retention numbers investors ask for. A SaaS at 88% has to replace
-    12% of last year's revenue before any growth counts.
+    downgrades, and one of the first retention numbers investors ask for. Copperline, at 88%, has to replace
+    12% of last year's revenue before any growth counts. That sits beside a logo churn of about a
+    quarter of all customers a year because most churn comes in customers' first months, before
+    they are a year old and join the cohort.
   pitfalls:
     - Cap each customer at its starting MRR before summing. Letting one customer's expansion offset another's downgrade is NRR, not GRR.
     - Measure per customer, not per subscription, or a plan change done as cancel and resubscribe counts as churn.

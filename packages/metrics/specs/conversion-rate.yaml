@@ -49,7 +49,7 @@ noise:
 
 example:
   business: store
-  level: 0.0206
+  level: 0.022
   volume: 600000
   trend: 0.01
   season: 1
@@ -118,12 +118,12 @@ related: [sessions, add-to-cart-rate, checkout-conversion, mobile-conversion-rat
 prose:
   why_it_matters: >-
     Conversion rate turns traffic into orders, so almost every change to the store shows up in
-    it eventually. At 600,000 sessions a week, a tenth of a point is 600 orders, about $58,000 a
-    week at Northwind's $97 order. It moves with who arrives as much as with the store, so read it
+    it eventually. At 600,000 sessions a week, a tenth of a point is 600 orders, about $60,000 a
+    week at Northwind's $100 order. It moves with who arrives as much as with the store, so read it
     beside the traffic mix before crediting or blaming the site.
   pitfalls:
     - Orders sent from the server often carry no session id and fall out of the numerator. Pass the browser's session id onto the order event or conversion reads low.
-    - Orders ÷ sessions and sessions with an order ÷ sessions differ when shoppers place two orders in one visit. This spec counts sessions, like Shopify's online store conversion rate.
+    - Orders ÷ sessions and sessions with an order ÷ sessions differ when shoppers place two orders in one visit. This spec counts sessions, like Shopify's online store conversion rate; at Northwind 2.2% of 600,000 sessions is about 13,200 sessions with an order, against 13,300 orders.
     - A new low-intent channel lowers conversion while adding orders. Never judge a move without orders and sessions beside it.
     - Channel splits need the session's landing source on every event, including the order; otherwise orders land in an unattributed bucket and every channel looks worse.
     - Comparing Black Friday week with the week before mixes intent. Compare with last year's Black Friday week instead.

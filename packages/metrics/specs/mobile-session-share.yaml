@@ -109,9 +109,9 @@ related: [sessions, mobile-conversion-rate, conversion-rate, bounce-rate, paid-s
 prose:
   why_it_matters: >-
     Phones bring most store visits but convert below desktop, so the device mix moves store
-    conversion with no change to the site. At Northwind, phones convert at 1.7% and desktop and
-    tablets at about 2.8%, so a rise in mobile share from 68% to 73% lowers overall conversion by
-    about 0.055 points, roughly 330 orders a week on 600,000 sessions, from the mix alone. Check
+    conversion with no change to the site. At Northwind, phones convert at 1.8% and desktop and
+    tablets at about 3%, so a rise in mobile share from 68% to 73% lowers overall conversion by
+    about 0.06 points, roughly 360 orders a week on 600,000 sessions, from the mix alone. Check
     this before blaming checkout.
   pitfalls:
     - Tablets are not mobile here. Tools that fold tablets into mobile read higher by the tablet share, so check which definition a comparison uses.

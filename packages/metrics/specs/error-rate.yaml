@@ -50,7 +50,7 @@ noise:
 example:
   business: app
   level: 0.018
-  volume: 180000
+  volume: 187000
   trend: 0.15
 
 drivers:
@@ -108,7 +108,7 @@ prose:
   why_it_matters: >-
     Error rate counts sessions that hit at least one exception, which is closer to what people
     feel than a raw error count: a broken page that throws fifty errors is one bad session. It
-    is the fastest quality signal after a release. At 180,000 sessions a week and 1.8%, chance
+    is the fastest quality signal after a release. At Pocketful's 187,000 sessions a week (52,000 weekly actives at 3.6 each) and 1.8%, chance
     moves it by less than 0.1 point, so almost any visible change has a cause.
   pitfalls:
     - Counting errors instead of sessions with errors lets one looping page dominate the number. This spec counts each session once.

@@ -340,7 +340,7 @@ noise:
 
 example:
   business: store
-  level: 2.2
+  level: 2.3
   volume: 6800
   trend: -0.05
 
@@ -408,8 +408,9 @@ prose:
     LTV to CAC asks whether acquisition pays: at 1.0 a cohort's first year of gross profit only just
     repays what it cost to win. The 3-to-1 rule of thumb from SaaS counts a whole customer lifetime;
     12 months of realized gross profit sits lower by construction, so judge it against your own
-    earlier cohorts. At Northwind a year-old cohort earned about $78 of gross profit per customer
-    against about $35 of ad spend, a ratio of 2.2. Below 1 is growth bought too dear; a ratio well above the
+    earlier cohorts. At Northwind a year-old cohort earned about $80 of gross profit per customer
+    ($138 of first-year revenue at 58% gross margin) against about $35 of ad spend, a ratio of
+    about 2.3. Below 1 is growth bought too dear; a ratio well above the
     usual range can mean the budget could grow.
   pitfalls:
     - Use gross profit, not revenue. A revenue ratio of 3 at a 40% margin is a gross-profit ratio of 1.2, which barely pays back.

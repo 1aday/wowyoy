@@ -107,8 +107,9 @@ related: [mrr, logo-churn-rate, gross-revenue-retention, net-new-mrr, quick-rati
 
 prose:
   why_it_matters: >-
-    Churned MRR is the outflow that decides how hard everything else has to work: a SaaS losing
-    2% of MRR a month must replace about a fifth of its revenue every year before it grows at all.
+    Churned MRR is the outflow that decides how hard everything else has to work: Copperline loses
+    about $1,100 a week, about 2% of its $240k MRR a month, so it must replace about a fifth of its
+    revenue every year before it grows at all.
     Week to week it is lumpy, driven by renewal dates, expiring cards and a few large accounts,
     so read which subscriptions ended before reading how much they paid.
   pitfalls:

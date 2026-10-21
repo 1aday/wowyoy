@@ -224,7 +224,7 @@ prose:
   pitfalls:
     - Payback without gross margin overstates how fast money comes back. On 80% margin, revenue-based payback reads 20% too short.
     - Weekly payback swings with deal timing, because spend leads new customers by weeks or months. Plan on the trailing quarter and read the weekly number for direction only.
-    - It assumes customers stay long enough to pay it back. At Copperline's logo churn of about 0.56% a week, about a quarter of a cohort has left by month 11.5; read it with net revenue retention.
+    - It assumes customers stay long enough to pay it back. At Copperline's average logo churn of about 0.56% a week, about a quarter of a cohort has left by month 11.5, and new customers usually leave faster than the average; read it with net revenue retention.
     - Media spend alone gives a flattering number. Sales salaries, agency fees and tools belong in the spend for a fully loaded payback.
     - New MRR here is every subscription whose first paid period started this week, as in the new MRR spec. If your billing sells add-ons as separate subscriptions, an existing customer's add-on counts too; filter to each customer's first subscription for a strict per-customer payback.
 

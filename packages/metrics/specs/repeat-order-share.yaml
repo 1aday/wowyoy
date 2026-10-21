@@ -47,7 +47,7 @@ noise:
 
 example:
   business: store
-  level: 0.38
+  level: 0.39
   volume: 13300
   trend: 0.03
   season: -0.5

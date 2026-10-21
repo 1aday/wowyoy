@@ -256,7 +256,7 @@ related: [conversion-rate, product-view-rate, add-to-cart-rate, revenue-per-sess
 prose:
   why_it_matters: >-
     Shoppers who search say what they want in their own words, and they usually convert well
-    above the store average; at Northwind, 5.2% against 2.1%. A fall here is usually something
+    above the store average; at Northwind, 5.2% against 2.2%. A fall here is usually something
     the team controls, such as a search app update, lost synonyms or empty results for the
     words people actually type.
   pitfalls:

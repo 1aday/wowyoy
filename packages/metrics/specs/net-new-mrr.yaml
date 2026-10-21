@@ -16,7 +16,7 @@ definition:
 events:
   - name: subscription_started
     description: A subscription's first paid period began.
-    also_called: [Subscription Started, subscription_created, customer.subscription.created]
+    also_called: [Subscription Started, subscription_activated, invoice.paid (first)]
     properties:
       - name: mrr
         description: The new subscription's monthly amount.
@@ -185,8 +185,8 @@ noise:
 
 example:
   business: saas
-  level: 1410
-  volume: 60
+  level: 2390
+  volume: 72
   trend: 0.35
 
 drivers:
@@ -252,9 +252,10 @@ related: [mrr, new-mrr, expansion-mrr, churned-mrr, quick-ratio]
 prose:
   why_it_matters: >-
     Net new MRR is the week's change in MRR explained by its four movements, and the one number
-    that says whether the subscription business grew. Copperline, at $240k MRR growing 35% a year,
-    adds about $1,400 in an ordinary week, the difference between roughly $2,800 coming in and
-    $1,400 going out, so one bad week on either side can turn it negative. Never read it without
+    that says whether the subscription business grew. Copperline, at $240k MRR, adds about $2,400 in
+    an ordinary week, a pace of about half its MRR again in a year: roughly $3,800 of new and
+    expansion MRR coming in against $1,400 of churn and contraction going out. New MRR alone can
+    swing by about 70% on chance, so a quiet week of sales can take most of it away with nothing wrong. Never read it without
     its parts: the same net figure can be strong sales hiding a churn problem.
   pitfalls:
     - Net new MRR must equal the change in the MRR snapshot from one Sunday to the next. When it doesn't, a movement is missing, usually a plan change or cancellation that never reached the event stream.

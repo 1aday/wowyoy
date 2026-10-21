@@ -41,8 +41,8 @@ noise:
 
 example:
   business: store
-  level: 4700
-  volume: 4700
+  level: 5000
+  volume: 5000
   trend: 0.2
 
 drivers:
@@ -97,8 +97,8 @@ related: [new-customers, repeat-order-share, repeat-purchase-rate, active-custom
 prose:
   why_it_matters: >-
     Returning customers buy without a new acquisition cost, so each of their orders carries more
-    margin than a first order. At Northwind about 4,700 come back each week and place 38% of
-    orders. The count grows only when the customer base grows and keeps buying, which makes it the
+    margin than a first order. At Northwind about 5,000 come back each week and place about
+    5,200 orders, 39% of the total. The count grows only when the customer base grows and keeps buying, which makes it the
     plainest weekly read of retention a store has; a sudden drop usually traces to an email, a
     stock-out or a customer-matching change, not to demand.
   pitfalls:

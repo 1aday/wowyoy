@@ -45,7 +45,7 @@ noise:
 
 example:
   business: store
-  level: 97
+  level: 100
   volume: 13300
   trend: 0.1
   season: 1
@@ -112,8 +112,8 @@ prose:
   why_it_matters: >-
     Revenue is orders × AOV, so AOV separates "fewer people bought" from "people bought less".
     It moves with prices, discounts, basket size and who is buying, not with traffic. At
-    Northwind, $1 of AOV across 13,300 orders is $13,300 a week, the same revenue as about 137
-    more orders.
+    Northwind, $1 of AOV across 13,300 orders is $13,300 a week, the same revenue as about 133
+    more orders at its $100 average.
   pitfalls:
     - Averages follow large orders. A few wholesale or bulk orders can lift a small store's AOV 10% in a week; check the median order beside it.
     - Dividing net revenue after refunds by orders makes AOV move with refunds on earlier weeks' orders. This spec divides the week's own order revenue by its order count and reads refunds in refund rate.
