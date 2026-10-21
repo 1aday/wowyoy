@@ -1,9 +1,11 @@
 import type { MetricSpec } from "@workspace/metrics"
 import type { WhyDirection } from "@workspace/compiler"
+import { embedPrefill } from "@/lib/fluke/embed"
+import { FlukeEmbedCard } from "./fluke-embed-card"
 
 /**
  * The Fluke Test, embedded on a Standard or Why page and pre-filled for one metric.
- * Placeholder until the Fluke Test build replaces it; the props are the contract.
+ * Metrics with a sampling floor get the two-number test; process metrics get their example history.
  */
 export interface FlukeEmbedProps {
   spec: Pick<MetricSpec, "id" | "name" | "kind" | "noise" | "example" | "polarity">
@@ -12,6 +14,14 @@ export interface FlukeEmbedProps {
   className?: string
 }
 
-export function FlukeEmbed(_props: FlukeEmbedProps) {
-  return null
+export function FlukeEmbed({ spec, direction, className }: FlukeEmbedProps) {
+  const prefill = embedPrefill(spec, direction)
+  return (
+    <FlukeEmbedCard
+      spec={{ id: spec.id, name: spec.name, kind: spec.kind, example: spec.example }}
+      prefill={prefill}
+      direction={direction}
+      className={className}
+    />
+  )
 }

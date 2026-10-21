@@ -3,7 +3,7 @@ import { flukeTest, type FlukeUnit } from "@workspace/metrics"
 import { Prompt } from "@workspace/ui/brand/prompt"
 import { SiteHeader } from "@/components/site-header"
 import { readWorkspace } from "@/lib/session"
-import { serialize } from "@/lib/fluke-share"
+import { serialize } from "@/lib/fluke/share"
 import { FlukeTest } from "./fluke-test"
 
 type Search = Promise<{ m?: string; v?: string; u?: string }>

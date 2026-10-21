@@ -11,6 +11,7 @@ import {
   parseWeekId,
   rng,
   samplingFloor,
+  twoWeekKindFor,
   twoWeekTest,
   volumeToDetect,
 } from "../src"
@@ -63,6 +64,36 @@ describe("judge", () => {
   it("matches the plan's worked example: 800 sessions, 4.1% to 3.6% is noise", () => {
     expect(twoWeekTest({ kind: "rate", before: 0.041, after: 0.036, volume: 800 })!.call).toBe("noise")
     expect(twoWeekTest({ kind: "rate", before: 0.041, after: 0.026, volume: 8000 })!.call).toBe("real")
+  })
+
+  it("tests an average (AOV) against cv/√orders", () => {
+    const v = twoWeekTest({ kind: "average", before: 31.7, after: 33.2, volume: 13000, cv: 0.9 })!
+    expect(v.floor).toBeCloseTo(2 * Math.SQRT2 * ((32.45 * 0.9) / Math.sqrt(13000)), 9)
+    expect(v.call).toBe("real")
+    expect(twoWeekTest({ kind: "average", before: 31.7, after: 33.2, volume: 200, cv: 0.9 })!.call).toBe("noise")
+    expect(twoWeekTest({ kind: "average", before: 31.7, after: 33.2, volume: 12 })!.call).toBe("too-few")
+    expect(twoWeekTest({ kind: "average", before: 31.7, after: 33.2 })).toBeNull()
+  })
+
+  it("calls a pure-noise average real about 5% of the time", () => {
+    const r = rng(21)
+    let real = 0
+    const trials = 4000
+    for (let t = 0; t < trials; t++) {
+      const n = 900
+      const xs = [0, 1].map(() => 40 * (1 + (1.1 / Math.sqrt(n)) * r.normal()))
+      if (twoWeekTest({ kind: "average", before: xs[0]!, after: xs[1]!, volume: n, cv: 1.1 })!.call === "real") real++
+    }
+    expect(real / trials).toBeGreaterThan(0.025)
+    expect(real / trials).toBeLessThan(0.075)
+  })
+
+  it("maps every noise type with a sampling floor to a two-number kind", () => {
+    expect(twoWeekKindFor("binomial")).toBe("rate")
+    expect(twoWeekKindFor("poisson")).toBe("count")
+    expect(twoWeekKindFor("compound")).toBe("amount")
+    expect(twoWeekKindFor("mean")).toBe("average")
+    expect(twoWeekKindFor("process")).toBeNull()
   })
 
   it("needs the floor and the process limits to agree before calling a move real", () => {
