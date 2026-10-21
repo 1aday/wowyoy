@@ -137,6 +137,8 @@ export const metricSpecSchema = z
     /** The product catalog metric this spec defines, when the Pulse table has it. */
     catalog_id: z.string().optional(),
     kind: z.enum(["count", "currency", "rate", "ratio", "duration"]),
+    /** For durations: the unit values are in. */
+    duration_unit: z.enum(["minutes", "hours", "days", "months"]).optional(),
     polarity: z.enum(["up-is-good", "down-is-good"]),
     definition: z.object({
       /** One sentence, the answer to "what is X". */
@@ -192,6 +194,9 @@ export const metricSpecSchema = z
   .superRefine((s, ctx) => {
     if ((s.kind === "rate" || s.kind === "ratio") && !s.denominator && !s.queries) {
       ctx.addIssue({ code: "custom", message: `${s.kind} needs a denominator or hand-written queries`, path: ["denominator"] })
+    }
+    if (s.kind === "duration" && !s.duration_unit) {
+      ctx.addIssue({ code: "custom", message: "a duration needs duration_unit", path: ["duration_unit"] })
     }
     if (s.noise.type === "binomial" && (s.noise.typical <= 0 || s.noise.typical >= 1)) {
       ctx.addIssue({ code: "custom", message: "a binomial typical value is a fraction between 0 and 1", path: ["noise", "typical"] })

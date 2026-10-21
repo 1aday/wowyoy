@@ -1,8 +1,8 @@
 import { MINUS, formatValue, type BandRow, type MetricSpec } from "@workspace/metrics"
 
 /** A spec value as it reads on a page: 62.0%, $1.30M, 1,184, 3.40×, 4.2 days. */
-export function formatAmount(spec: Pick<MetricSpec, "kind">, v: number) {
-  if (spec.kind === "duration") return `${v < 10 ? v.toFixed(1) : Math.round(v)} days`
+export function formatAmount(spec: Pick<MetricSpec, "kind" | "duration_unit">, v: number) {
+  if (spec.kind === "duration") return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${spec.duration_unit ?? "days"}`
   return formatValue({ kind: spec.kind }, v)
 }
 
